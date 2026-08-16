@@ -90,7 +90,11 @@ if (process.platform === 'darwin') {
   rmSync(dmgPath, { force: true })
   rmSync(dmgStage, { recursive: true, force: true })
   mkdirSync(dmgStage, { recursive: true })
-  cpSync(distDir, join(dmgStage, distName), { recursive: true })
+  const appInStage = join(dmgStage, 'dsh-desktop.app')
+  cpSync(join(distDir, 'dsh-desktop.app'), appInStage, { recursive: true })
+  mkdirSync(join(appInStage, 'Contents/Resources'), { recursive: true })
+  cpSync(join(distDir, 'runtime'), join(appInStage, 'Contents/Resources/runtime'), { recursive: true })
+  cpSync(join(distDir, 'seed-dsh-home'), join(appInStage, 'Contents/Resources/seed-dsh-home'), { recursive: true })
   symlinkSync('/Applications', join(dmgStage, 'Applications'))
   console.log('[package] create dmg via hdiutil')
   try {

@@ -40,7 +40,7 @@ dsh-client-<version>-<platform>/        # 绿色版/便携布局（解压即用�
 - 安装目录必须可写（macOS `/Applications`、Windows `Program Files` 默认只读 → 绿色版解压到用户可写位置，或安装器处理）
 - 首启先做**写权限自检**，失败明确报错 + 指引（换目录/授权），不静默
 - 程序（runtime/）与数据（data/）分离：清理数据不破坏程序，重装不丢数据
-- macOS dmg 安装形态为 `~/Applications/dsh-client/{dsh-client.app, runtime/, data/}`，详见 §6.3
+- macOS dmg 形态为自包含 `dsh-desktop.app`（runtime/seed 内嵌 Resources），用户数据在 `~/Library/Application Support/dsh-desktop/`，详见 §6.3
 
 ## 3. runtime：便携 Node + 外部动态引入 upstream 自构建 harness（ADR-016）
 
@@ -238,20 +238,23 @@ HARNESS_BIN="$RUNTIME/harness/versions/$HARNESS_VERSION/node_modules/@deepseek-a
 
 - **zip 绿色版**（主推）：解压即用，用户放任意可写目录
 - **平台安装包**：Windows per-user NSIS（默认 `%LOCALAPPDATA%\Programs\dsh-client`，可自选）；macOS dmg（拷到用户可写位置如 `~/Applications/dsh-client`，可自选；安装引导执行 xattr 去隔离，ADR-020）
-- **macOS 安装形态**：
+- **macOS DMG 安装形态**：
   ```
-  ~/Applications/dsh-client/
-  ├── dsh-client.app/    # Tauri shell；seed-dsh-home 在 Contents/Resources/seed-dsh-home
-  ├── runtime/           # node + app/manager.mjs + harness（versions/ + current.json）
-  └── data/              # DSH_HOME（dsh-home/ + logs/）
+  dsh-desktop.app/
+  └── Contents/
+      ├── MacOS/dsh-desktop
+      └── Resources/
+          ├── runtime/               # node + manager + harness
+          └── seed-dsh-home/         # 首次启动 seed 来源
   ```
-  `.app` 通过 `../runtime/`、`../data/` 相对定位；可写数据不进 bundle；shell 更新替换 `.app`，runtime 更新替换 `runtime/`，均不碰 `data/`
-- **统一 runtime/ + data/ 拆分语义**（ADR-008）：`/Applications` 和 `Program Files` 只读，安装包版**一律装用户可写位置**，不装系统只读目录——三平台不引入第二套 DSH_HOME 策略
-- 安装包 = 绿色版的"装到固定位置 + 快捷方式/卸载入口"包装
+  - DMG 内只放 `dsh-desktop.app` + `/Applications` 快捷方式，用户拖 App 安装
+  - 用户数据写入 `~/Library/Application Support/dsh-desktop/dsh-home/`
+- **zip 绿色版**：仍是 `runtime/`、`seed-dsh-home/`、`data/`、`bin/` 目录形态
+- **Windows**：per-user NSIS，安装到用户可写目录，数据随程序目录；`/Applications` 和 `Program Files` 只读约束仍生效
 
 ### 6.4 build/CI（ADR-019）
 
-- GitHub Actions 三平台矩阵：`windows-latest`（x64）、`macos-14`（Intel）、`macos-14-arm64`（Apple Silicon）
+- GitHub Actions 双平台矩阵：`windows-latest`（x64）、`macos-latest`
 - 流水线：读 `harness-source.json`（npm/git/local）与 `builtin-sources.json`（模式/插件 git/local）→ 解析来源并校验 lock → checkout/build → harness 生成 `runtime/harness/versions/<version>/`，模式/插件实体化进 seed → 组装 runtime/node、app/manager.mjs、seed-dsh-home/ 与 `current.json` → Tauri 壳（Rust toolchain）→ zip + NSIS/dmg → SHA256 → 传 GitHub Release（ADR-014）
 - 签名：无证书默认不签（ADR-020）；有证书时插入签名/公证步骤（留位）
 - 发布：手动 workflow_dispatch + tag，不自动发版

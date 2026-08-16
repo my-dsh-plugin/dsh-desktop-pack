@@ -8,10 +8,8 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const RUNTIME = join(ROOT, 'runtime')
-const DATA = join(ROOT, 'data')
-const LOGS = join(DATA, 'logs')
-const DEFAULT_HOME = join(DATA, 'dsh-home')
-const SAFE_HOME = join(DATA, 'safe-home')
+const DEFAULT_HOME = join(ROOT, 'data/dsh-home')
+const SAFE_HOME = join(ROOT, 'data/safe-home')
 const SEED_HOME = join(ROOT, 'seed-dsh-home')
 const HARNESS = join(RUNTIME, 'harness')
 
@@ -21,6 +19,8 @@ const RESET_HOME = CLI_ARGS.has('--reset-home')
 const DSH_HOME = SAFE_MODE
   ? SAFE_HOME
   : (process.env.DSH_HOME ?? DEFAULT_HOME)
+const DATA = process.env.DSH_HOME && !SAFE_MODE ? resolve(dirname(process.env.DSH_HOME)) : join(ROOT, 'data')
+const LOGS = join(DATA, 'logs')
 
 const NODE = process.platform === 'win32'
   ? join(RUNTIME, 'node', 'node.exe')

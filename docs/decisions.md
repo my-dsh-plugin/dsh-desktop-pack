@@ -83,7 +83,7 @@
 **结论**：DSH_HOME = **程序安装目录内的数据子目录**（便携布局，如 `<install>/data/dsh-home/`）。
 不用 `~/.dsh`、不用 `%APPDATA%`。首次启动**询问是否从现有 `~/.dsh` 迁移/拷贝**。
 启动失败必须有**恢复/清理入口**。
-macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-client.app` 与 `runtime/` 都从它相对定位 `data/`（ADR-018）。
+macOS DMG 形态例外：`.app` 自包含 runtime/seed（`Contents/Resources/`），用户数据写 `~/Library/Application Support/dsh-desktop/dsh-home/`；zip 绿色版仍保持 `data/` 随程序目录（ADR-018）。
 
 **依据**（用户拍板）：
 - 程序目录内 = 完全自包含、卸载即清、多实例天然隔离
@@ -291,22 +291,25 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
 - **zip 绿色版**：解压即用，主推（用户可放任意可写目录）；根目录含 `runtime/`、`seed-dsh-home/`、`data/`、`bin/`
 - **平台安装包**：Windows per-user NSIS（默认 `%LOCALAPPDATA%\Programs\dsh-client`，可自选目录）；macOS dmg（拷贝安装到用户可写位置如 `~/Applications/dsh-client`，可自选）
 
-**macOS 安装形态**：
+**macOS DMG 安装形态（用户期望的标准 App 拖动）**：
 ```
-~/Applications/dsh-client/
-├── dsh-client.app/    # Tauri shell；seed-dsh-home 放 Contents/Resources/seed-dsh-home
-├── runtime/           # node + app/manager.mjs + harness（versions/ + current.json）
-└── data/              # DSH_HOME（dsh-home/ + logs/）
+dsh-desktop.app/
+└── Contents/
+    ├── MacOS/dsh-desktop
+    └── Resources/
+        ├── runtime/               # node + manager + harness
+        └── seed-dsh-home/         # 首次启动 seed 来源
 ```
-- `.app` 是平台壳，运行时通过 `../runtime/` 与 `../data/` 相对定位，不把可写数据放进 bundle
-- shell 更新替换 `.app`（含 Resources 里的 seed）；runtime 更新替换 `runtime/`；两者都不碰 `data/`
+- DMG 只展示 `dsh-desktop.app` + `/Applications` 快捷方式，用户直接拖 App 安装
+- 用户数据写入 `~/Library/Application Support/dsh-desktop/dsh-home/`（macOS 平台例外）
+- zip 绿色版仍为目录形态：`runtime/`、`seed-dsh-home/`、`data/`、`bin/`
 
-**关键约束**：macOS `/Applications`、Windows `Program Files` 只读，而 ADR-008 要求 DSH_HOME 在程序目录内——**安装包版一律装用户可写位置**，不装系统只读目录；三平台共用同一套 `runtime/` + `data/` 拆分语义，不引入第二套 DSH_HOME 策略。安装包只是绿色版的"装到固定位置 + 快捷方式/卸载入口"包装。
+**关键约束**：macOS `/Applications`、Windows `Program Files` 只读，而 ADR-008 要求绿色版 DSH_HOME 在程序目录内——**Windows 安装包一律装用户可写位置**，不装系统只读目录；macOS DMG 用 App Support 存数据。安装包只是绿色版的"装到固定位置 + 快捷方式/卸载入口"包装。
 
 ## ADR-019：build/CI —— GitHub Actions 三平台构建 + Release 发布
 
 **结论**：CI 必做，GitHub Actions：
-- **构建矩阵**：`windows-latest`（x64）、`macos-14`（Intel x64）、`macos-14-arm64`（Apple Silicon）——双平台三产物
+- **构建矩阵**：`windows-latest`（x64）、`macos-latest`——双平台产物
 - **流水线**：读 `harness-source.json`（npm/git/local，ADR-026）与 `builtin-sources.json`（模式/插件 git/local）→ 解析来源并校验 lock → checkout/build → harness 生成 `runtime/harness/versions/<version>/`，模式/插件实体化进 seed → 组装 runtime/node、app/manager.mjs、seed-dsh-home/ 与 `current.json` → Tauri 壳构建（Rust toolchain）→ 打包 zip + NSIS/dmg → 生成 SHA256 → 上传 GitHub Release 资产（ADR-014，含 latest 版本号）
 - **签名**：无证书默认不签（见 ADR-020）；有证书时插入签名/公证步骤（留好步骤位）
 - 发布触发：手动 workflow_dispatch 打 tag 发布，不在每次 push 自动发版

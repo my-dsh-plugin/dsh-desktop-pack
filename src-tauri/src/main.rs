@@ -19,38 +19,81 @@ struct ManagerProcess {
     stdin: Mutex<Option<ChildStdin>>,
 }
 
-fn resolve_package_root() -> Option<PathBuf> {
+struct RuntimePaths {
+    node: PathBuf,
+    manager: PathBuf,
+    data_home: Option<PathBuf>,
+}
+
+fn resolve_runtime_paths() -> Option<RuntimePaths> {
     if let Ok(root) = env::var("DSH_DESKTOP_ROOT") {
-        return Some(PathBuf::from(root));
+        let root = PathBuf::from(root);
+        return Some(RuntimePaths {
+            node: if cfg!(target_os = "windows") {
+                root.join("runtime").join("node").join("node.exe")
+            } else {
+                root.join("runtime").join("node").join("bin").join("node")
+            },
+            manager: root.join("runtime").join("app").join("manager.mjs"),
+            data_home: None,
+        });
     }
+
     let exe = env::current_exe().ok()?;
     for ancestor in exe.ancestors() {
-        let runtime = ancestor.join("runtime").join("app").join("manager.mjs");
-        if runtime.exists() {
-            return Some(ancestor.to_path_buf());
+        let manager = ancestor.join("runtime").join("app").join("manager.mjs");
+        if manager.exists() {
+            return Some(RuntimePaths {
+                node: if cfg!(target_os = "windows") {
+                    ancestor.join("runtime").join("node").join("node.exe")
+                } else {
+                    ancestor.join("runtime").join("node").join("bin").join("node")
+                },
+                manager,
+                data_home: None,
+            });
         }
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_bundle = exe.ancestors().find(|path| path.extension().is_some_and(|ext| ext == "app"))?;
+        let resources = app_bundle.join("Contents").join("Resources");
+        let home = env::var("HOME").ok()?;
+        let data_home = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("dsh-desktop")
+            .join("dsh-home");
+        return Some(RuntimePaths {
+            node: resources.join("runtime").join("node").join("bin").join("node"),
+            manager: resources.join("runtime").join("app").join("manager.mjs"),
+            data_home: Some(data_home),
+        });
+    }
+
+    #[allow(unreachable_code)]
     None
 }
 
-fn spawn_manager(root: &PathBuf) -> std::io::Result<Child> {
-    let node = if cfg!(target_os = "windows") {
-        root.join("runtime").join("node").join("node.exe")
-    } else {
-        root.join("runtime").join("node").join("bin").join("node")
-    };
-    let manager = root.join("runtime").join("app").join("manager.mjs");
-    Command::new(node)
-        .arg(manager)
+fn spawn_manager(paths: &RuntimePaths) -> std::io::Result<Child> {
+    let mut command = Command::new(&paths.node);
+    command
+        .arg(&paths.manager)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
+        .stderr(Stdio::inherit());
+    if let Some(data_home) = &paths.data_home {
+        if env::var_os("DSH_HOME").is_none() {
+            command.env("DSH_HOME", data_home);
+        }
+    }
+    command.spawn()
 }
 
 fn main() {
-    let root = resolve_package_root().expect("cannot resolve package root; set DSH_DESKTOP_ROOT");
-    eprintln!("[shell] package root: {}", root.display());
+    let paths = resolve_runtime_paths().expect("cannot resolve manager runtime; set DSH_DESKTOP_ROOT");
+    eprintln!("[shell] manager: {}", paths.manager.display());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -65,7 +108,7 @@ fn main() {
             stdin: Mutex::new(None),
         })
         .setup(move |app| {
-            let mut child = spawn_manager(&root)?;
+            let mut child = spawn_manager(&paths)?;
             let stdin = child.stdin.take().expect("manager stdin");
             let stdout = child.stdout.take().expect("manager stdout");
             {
