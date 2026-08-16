@@ -278,13 +278,24 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
-                let state = app_handle.state::<ManagerProcess>();
-                let mut guard = state.child.lock().unwrap();
-                if let Some(child) = guard.as_mut() {
-                    let _ = child.kill();
-                    let _ = child.wait();
+            match event {
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
+                RunEvent::Exit | RunEvent::ExitRequested { .. } => {
+                    let state = app_handle.state::<ManagerProcess>();
+                    let mut guard = state.child.lock().unwrap();
+                    if let Some(child) = guard.as_mut() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+                _ => {}
             }
         });
 }
