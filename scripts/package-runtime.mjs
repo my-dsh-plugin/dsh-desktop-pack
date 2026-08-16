@@ -19,8 +19,11 @@ for (const [label, path] of [
   }
 }
 
-rmSync(join(outRuntime, 'harness'), { recursive: true, force: true })
-copyTree(harnessOut, join(outRuntime, 'harness'))
+const outRuntimeHarness = join(outRuntime, 'harness')
+rmSync(outRuntimeHarness, { recursive: true, force: true })
+mkdirSync(outRuntimeHarness, { recursive: true })
+copyTree(join(harnessOut, 'current.json'), join(outRuntimeHarness, 'current.json'))
+copyTree(join(harnessOut, 'versions'), join(outRuntimeHarness, 'versions'))
 
 const managerTarget = join(outRuntime, 'app')
 rmSync(managerTarget, { recursive: true, force: true })
