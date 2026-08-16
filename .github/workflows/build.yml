@@ -46,8 +46,29 @@ jobs:
       - name: Fetch sources
         run: npm run sources:fetch
 
-      - name: Build package
-        run: npm run build
+      - name: Build harness
+        run: npm run build:harness
+
+      - name: Build plugins
+        run: npm run build:plugins
+
+      - name: Package harness
+        run: npm run package:harness
+
+      - name: Assemble seed
+        run: npm run assemble:seed
+
+      - name: Fetch Node runtime
+        run: npm run fetch:node
+
+      - name: Package runtime
+        run: npm run package:runtime
+
+      - name: Build shell
+        run: npm run shell:build
+
+      - name: Package distribution
+        run: npm run package:dist
 
       - name: Upload package
         uses: actions/upload-artifact@v4
