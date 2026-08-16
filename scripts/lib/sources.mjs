@@ -76,16 +76,29 @@ export function normalizeEntry(entry) {
   throw new Error(`${id}: unsupported source kind ${JSON.stringify(kind)}`)
 }
 
+function windowsCommandLine(command, args) {
+  const quote = (value) => {
+    const text = String(value)
+    if (/[\s"&|<>^%!]/.test(text)) return `"${text.replaceAll('"', '\\"')}"`
+    return text
+  }
+  return [command, ...args].map(quote).join(' ')
+}
+
 export function run(command, args, options = {}) {
   const { cwd = ROOT, stdio = 'inherit', env = process.env } = options
-  let executable = command
-  if (process.platform === 'win32' && ['pnpm', 'npm', 'npx'].includes(command)) {
-    executable = `${command}.cmd`
-  }
   const childEnv = ['pnpm', 'npm', 'npx'].includes(command)
     ? { ...env, npm_config_auto_install_peers: env.npm_config_auto_install_peers ?? 'true' }
     : env
-  const result = spawnSync(executable, args, { cwd, stdio, env: childEnv, shell: false })
+  let executable = command
+  let spawnArgs = args
+  let shell = false
+  if (process.platform === 'win32' && ['pnpm', 'npm', 'npx'].includes(command)) {
+    executable = windowsCommandLine(command, args)
+    spawnArgs = []
+    shell = true
+  }
+  const result = spawnSync(executable, spawnArgs, { cwd, stdio, env: childEnv, shell })
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`${executable} ${args.join(' ')} failed with exit code ${String(result.status)}`)
