@@ -51,5 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dsh-desktop-${{ matrix.platform }}
-          path: out/*.zip
+          path: |
+            out/*.zip
+            out/*.dmg
           if-no-files-found: error

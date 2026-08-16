@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { readJson, run, ROOT } from './lib/sources.mjs'
 
@@ -81,6 +81,22 @@ if (process.platform === 'darwin') {
   archive = `${distName}.zip`
   rmSync(resolve(ROOT, 'out', archive), { force: true })
   run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', distDir, resolve(ROOT, 'out', archive)])
+
+  const dmgName = `${distName}.dmg`
+  const dmgPath = resolve(ROOT, 'out', dmgName)
+  const dmgStage = resolve(ROOT, 'out', `.dmg-stage-${distName}`)
+  rmSync(dmgPath, { force: true })
+  rmSync(dmgStage, { recursive: true, force: true })
+  mkdirSync(dmgStage, { recursive: true })
+  cpSync(join(distDir, 'dsh-desktop.app'), join(dmgStage, 'dsh-desktop.app'), { recursive: true })
+  symlinkSync('/Applications', join(dmgStage, 'Applications'))
+  console.log('[package] create dmg via hdiutil')
+  try {
+    run('hdiutil', ['create', '-volname', 'DSH Desktop', '-srcfolder', dmgStage, '-ov', '-format', 'UDZO', dmgPath])
+  } catch (error) {
+    console.warn(`[package] warning: hdiutil DMG creation failed (${error instanceof Error ? error.message : String(error)}); continuing with zip only`)
+  }
+  rmSync(dmgStage, { recursive: true, force: true })
 } else if (process.platform === 'win32') {
   archive = `${distName}.zip`
   const archivePath = resolve(ROOT, 'out', archive)
@@ -94,3 +110,9 @@ if (process.platform === 'darwin') {
 
 console.log(`[package] dist ready: ${distDir}`)
 console.log(`[package] archive ready: ${resolve(ROOT, 'out', archive)}`)
+if (process.platform === 'darwin') {
+  const dmgPath = resolve(ROOT, 'out', `${distName}.dmg`)
+  if (existsSync(dmgPath)) {
+    console.log(`[package] dmg ready: ${dmgPath}`)
+  }
+}
