@@ -62,6 +62,7 @@ writeFileSync(join(installRoot, 'pnpm-workspace.yaml'), `packages:
   - .
 
 autoInstallPeers: true
+nodeLinker: hoisted
 
 allowBuilds:
   esbuild: true
