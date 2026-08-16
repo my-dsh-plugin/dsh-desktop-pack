@@ -147,6 +147,7 @@ function runConfigDump() {
       encoding: 'utf8',
       timeout: 20_000,
       maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
     })
     return {
       ok: result.status === 0,
@@ -641,6 +642,7 @@ function startDsh() {
     cwd: process.env.DSH_CWD || homedir(),
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   })
   log('info', `spawn dsh pid=${child.pid} harness=${bin} home=${DSH_HOME}`)
   emit({ type: 'spawn', pid: child.pid, harness: bin })

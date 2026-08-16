@@ -84,6 +84,12 @@ fn spawn_manager(paths: &RuntimePaths) -> std::io::Result<Child> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     if let Some(data_home) = &paths.data_home {
         if env::var_os("DSH_HOME").is_none() {
             command.env("DSH_HOME", data_home);
@@ -127,8 +133,14 @@ fn main() {
                 .min_inner_size(960.0, 640.0);
             #[cfg(target_os = "macos")]
             let window_builder = window_builder.decorations(true).hidden_title(true);
-            #[cfg(not(target_os = "macos"))]
-            let window_builder = window_builder.decorations(false);
+            #[cfg(target_os = "windows")]
+            let window_builder = window_builder
+                .decorations(true)
+                .minimizable(true)
+                .maximizable(true)
+                .closable(true);
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            let window_builder = window_builder.decorations(true);
             let window = window_builder
                 .on_navigation(move |url| {
                     url.host_str() == Some("127.0.0.1")
