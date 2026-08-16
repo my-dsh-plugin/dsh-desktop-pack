@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,8 +8,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const RUNTIME = join(ROOT, 'runtime')
 const DATA = join(ROOT, 'data')
 const LOGS = join(DATA, 'logs')
-const DSH_HOME = process.env.DSH_HOME ?? join(DATA, 'dsh-home')
+const DEFAULT_HOME = join(DATA, 'dsh-home')
+const SAFE_HOME = join(DATA, 'safe-home')
+const SEED_HOME = join(ROOT, 'seed-dsh-home')
 const HARNESS = join(RUNTIME, 'harness')
+
+const CLI_ARGS = new Set(process.argv.slice(2))
+const SAFE_MODE = CLI_ARGS.has('--safe-mode')
+const RESET_HOME = CLI_ARGS.has('--reset-home')
+const DSH_HOME = SAFE_MODE
+  ? SAFE_HOME
+  : (process.env.DSH_HOME ?? DEFAULT_HOME)
 
 const NODE = process.platform === 'win32'
   ? join(RUNTIME, 'node', 'node.exe')
@@ -35,6 +44,52 @@ function log(level, text) {
   }
 }
 
+function compareVersions(left, right) {
+  const parse = (value) => {
+    const match = String(value).match(/^v?(\d{8})\.(\d+)$/)
+    if (!match) return null
+    return [Number(match[1]), Number(match[2])]
+  }
+  const a = parse(left)
+  const b = parse(right)
+  if (!a || !b) return 0
+  return a[0] - b[0] || a[1] - b[1]
+}
+
+function readCurrentVersion() {
+  for (const manifest of [join(ROOT, 'manifest.json'), join(RUNTIME, 'manifest.json')]) {
+    if (!existsSync(manifest)) continue
+    const parsed = JSON.parse(readFileSync(manifest, 'utf8'))
+    if (typeof parsed.version === 'string') return parsed.version
+  }
+  return null
+}
+
+async function checkForUpdates() {
+  const current = readCurrentVersion()
+  if (!current) return
+  try {
+    const response = await fetch('https://api.github.com/repos/my-dsh-plugin/dsh-desktop-pack/releases/latest', {
+      headers: { accept: 'application/vnd.github+json' },
+    })
+    if (!response.ok) return
+    const release = await response.json()
+    const latest = String(release.tag_name ?? '').replace(/^v/, '')
+    const available = compareVersions(latest, current) > 0
+    emit({
+      type: 'update',
+      current,
+      latest,
+      available,
+      url: typeof release.html_url === 'string' ? release.html_url : null,
+      body: typeof release.body === 'string' ? release.body.slice(0, 4000) : null,
+    })
+    if (available) log('info', `update available: ${current} -> ${latest}`)
+  } catch (error) {
+    log('warn', `update check failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function resolveHarnessBin() {
   const pointer = join(HARNESS, 'current.json')
   if (!existsSync(pointer)) throw new Error(`missing ${pointer}`)
@@ -52,8 +107,45 @@ function resolveHarnessBin() {
   return bin
 }
 
+function copySeedInto(home, { replace = false } = {}) {
+  if (!existsSync(SEED_HOME)) return
+  mkdirSync(home, { recursive: true })
+  for (const name of ['.agent-presets', 'profiles']) {
+    const source = join(SEED_HOME, name)
+    if (!existsSync(source)) continue
+    cpSync(source, join(home, name), {
+      recursive: true,
+      force: replace,
+      errorOnExist: false,
+    })
+  }
+}
+
+function prepareHome() {
+  if (SAFE_MODE) {
+    rmSync(DSH_HOME, { recursive: true, force: true })
+    mkdirSync(DSH_HOME, { recursive: true })
+    log('info', `safe-mode home reset: ${DSH_HOME}`)
+    return
+  }
+
+  const marker = join(DSH_HOME, '.home-init-done')
+  if (RESET_HOME && existsSync(DSH_HOME)) {
+    const backup = `${DSH_HOME}.bak-${new Date().toISOString().replaceAll(':', '-')}`
+    renameSync(DSH_HOME, backup)
+    log('info', `reset-home backed up to ${backup}`)
+  }
+
+  if (!existsSync(marker) && existsSync(SEED_HOME) && resolve(DSH_HOME) !== resolve(SEED_HOME)) {
+    copySeedInto(DSH_HOME)
+    writeFileSync(marker, `${new Date().toISOString()}\n`)
+    log('info', `seeded home from ${SEED_HOME}`)
+  }
+}
+
 function startDsh() {
   const bin = resolveHarnessBin()
+  prepareHome()
   mkdirSync(DSH_HOME, { recursive: true })
   mkdirSync(LOGS, { recursive: true })
   const env = { ...process.env, DSH_HOME }
@@ -144,6 +236,7 @@ process.stdin.on('data', (chunk) => {
       continue
     }
     if (command.type === 'shutdown') shutdown('SIGTERM')
+    else if (command.type === 'check-update') void checkForUpdates()
     else if (command.type === 'restart' && child) {
       restarts = 0
       child.kill('SIGTERM')
@@ -157,7 +250,10 @@ process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
 log('info', `manager boot node=${RUN_NODE} home=${DSH_HOME}`)
-emit({ type: 'boot', node: RUN_NODE, home: DSH_HOME })
+emit({ type: 'boot', node: RUN_NODE, home: DSH_HOME, safeMode: SAFE_MODE, resetHome: RESET_HOME })
+if (CLI_ARGS.has('--update-check')) void checkForUpdates()
+else setTimeout(() => void checkForUpdates(), 3000).unref()
+setInterval(() => void checkForUpdates(), 24 * 60 * 60 * 1000).unref()
 try {
   startDsh()
 } catch (error) {

@@ -1,8 +1,8 @@
 use std::{
     env,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
 };
 
@@ -13,7 +13,10 @@ use tauri::{
     Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 
-struct ManagerProcess(Mutex<Option<Child>>);
+struct ManagerProcess {
+    child: Mutex<Option<Child>>,
+    stdin: Mutex<Option<ChildStdin>>,
+}
 
 fn resolve_package_root() -> Option<PathBuf> {
     if let Ok(root) = env::var("DSH_DESKTOP_ROOT") {
@@ -55,12 +58,19 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(ManagerProcess(Mutex::new(None)))
+        .manage(ManagerProcess {
+            child: Mutex::new(None),
+            stdin: Mutex::new(None),
+        })
         .setup(move |app| {
             let mut child = spawn_manager(&root)?;
-            let _stdin = child.stdin.take().expect("manager stdin");
+            let stdin = child.stdin.take().expect("manager stdin");
             let stdout = child.stdout.take().expect("manager stdout");
-            *app.state::<ManagerProcess>().0.lock().unwrap() = Some(child);
+            {
+                let state = app.state::<ManagerProcess>();
+                *state.child.lock().unwrap() = Some(child);
+                *state.stdin.lock().unwrap() = Some(stdin);
+            }
 
             let port = Arc::new(Mutex::new(None::<u16>));
             let port_for_reader = port.clone();
@@ -78,10 +88,12 @@ fn main() {
 
             let tray_window = window.clone();
             let open_item = MenuItemBuilder::with_id("open", "打开主界面").build(app)?;
+            let update_item = MenuItemBuilder::with_id("check-update", "检查更新").build(app)?;
             let restart_item = MenuItemBuilder::with_id("restart", "重启").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let tray_menu = MenuBuilder::new(app)
                 .item(&open_item)
+                .item(&update_item)
                 .item(&restart_item)
                 .separator()
                 .item(&quit_item)
@@ -96,6 +108,13 @@ fn main() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                        }
+                    }
+                    "check-update" => {
+                        let state = app.state::<ManagerProcess>();
+                        let mut guard = state.stdin.lock().unwrap();
+                        if let Some(stdin) = guard.as_mut() {
+                            let _ = writeln!(stdin, "{{\"type\":\"check-update\"}}");
                         }
                     }
                     "restart" => app.restart(),
@@ -147,6 +166,14 @@ fn main() {
                                     }
                                     let _ = reader_window.eval(&format!("window.location.replace({url:?});"));
                                 }
+                                Some("update") => {
+                                    let current = object.get("current").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let latest = object.get("latest").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let available = object.get("available").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    if available {
+                                        eprintln!("[shell] update available: {current} -> {latest}");
+                                    }
+                                }
                                 Some("fatal") => {
                                     let message = object.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
                                     let _ = reader_window.eval(&format!(
@@ -170,7 +197,7 @@ fn main() {
         .run(|app_handle, event| {
             if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 let state = app_handle.state::<ManagerProcess>();
-                let mut guard = state.0.lock().unwrap();
+                let mut guard = state.child.lock().unwrap();
                 if let Some(child) = guard.as_mut() {
                     let _ = child.kill();
                     let _ = child.wait();
