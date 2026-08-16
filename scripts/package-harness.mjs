@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { readJson, readLock, resolveCheckout, run, ROOT } from './lib/sources.mjs'
@@ -23,20 +23,86 @@ if (typeof version !== 'string' || !/^\d{8}\.\d+$/.test(version)) {
 
 const outRoot = resolve(ROOT, 'out/harness')
 const target = join(outRoot, 'versions', version)
-const tarball = join(outRoot, `dsh-${version}.tgz`)
+const workspaceTarballs = join(outRoot, 'workspace-tarballs')
 
 console.log(`[package] harness ${version} -> ${target}`)
 rmSync(outRoot, { recursive: true, force: true })
 mkdirSync(outRoot, { recursive: true })
 mkdirSync(target, { recursive: true })
+mkdirSync(workspaceTarballs, { recursive: true })
 
-console.log('[package] pack @deepseek-ai/dsh')
-run('pnpm', ['--filter', '@deepseek-ai/dsh', 'pack', '--out', tarball], { cwd: checkout })
+// The pinned fork carries local core patches (settings namespace exposure and
+// workspace unarchive/delete APIs). Pack every public fork package and install
+// the dsh production closure from those tarballs; otherwise pnpm resolves the
+// peer dependency graph from the public registry and loses the patched builds.
+function packWorkspacePackages() {
+  console.log('[package] list fork workspace packages')
+  const listResult = run('pnpm', ['-r', 'list', '--depth', '-1', '--json'], {
+    cwd: checkout,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  const packages = JSON.parse(String(listResult.stdout ?? '[]'))
+    .filter((entry) => {
+      if (Boolean(entry.private) === true || String(entry.name).startsWith('@deepseek-ai/') === false) return false
+      const manifestPath = join(entry.path, 'package.json')
+      if (existsSync(manifestPath) === false) return true
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      const compatible = (field) => {
+        const allowed = manifest[field]
+        return Array.isArray(allowed) === false || allowed.length === 0
+          || allowed.includes(field === 'os' ? process.platform : process.arch)
+      }
+      if (compatible('os') && compatible('cpu')) return true
+      console.log(`[package] skip ${entry.name} (os=${JSON.stringify(manifest.os)} cpu=${JSON.stringify(manifest.cpu)}, host=${process.platform}-${process.arch})`)
+      return false
+    })
+  const byName = new Map()
+  let index = 0
+  for (const entry of packages) {
+    const name = String(entry.name)
+    const file = `${String(index).padStart(4, '0')}-${name.replace(/[^a-zA-Z0-9._-]/g, '-')}.tgz`
+    index += 1
+    console.log(`[package] pack ${name} -> ${file}`)
+    run('pnpm', ['--filter', name, 'pack', '--out', join(workspaceTarballs, file)], { cwd: checkout })
+    byName.set(name, file)
+  }
+  writeFileSync(join(workspaceTarballs, 'packages.json'), JSON.stringify(Object.fromEntries(byName), null, 2) + '\n')
+  return { packages, files: byName }
+}
+
+function collectWorkspaceClosure(packages, rootName) {
+  const byName = new Map(packages.map((entry) => [String(entry.name), entry]))
+  const closure = new Set()
+  const queue = [rootName]
+  while (queue.length > 0) {
+    const name = queue.shift()
+    if (byName.has(name) === false || closure.has(name)) continue
+    closure.add(name)
+    const manifestPath = join(byName.get(name).path, 'package.json')
+    if (existsSync(manifestPath) === false) continue
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    for (const section of [manifest.dependencies, manifest.optionalDependencies, manifest.peerDependencies]) {
+      if (section === undefined) continue
+      for (const dependency of Object.keys(section)) {
+        if (byName.has(dependency) && closure.has(dependency) === false) queue.push(dependency)
+      }
+    }
+  }
+  return closure
+}
+
+const { packages: workspacePackages, files: workspacePackageFiles } = packWorkspacePackages()
+const workspaceClosure = collectWorkspaceClosure(workspacePackages, '@deepseek-ai/dsh')
 
 const installRoot = target
 const builtin = readJson('builtin-sources.json')
-const dependencies = {
-  '@deepseek-ai/dsh': `file:../../dsh-${version}.tgz`,
+const dshTarball = workspacePackageFiles.get('@deepseek-ai/dsh')
+if (!dshTarball) throw new Error('@deepseek-ai/dsh was not found in fork workspace package list')
+const dependencies = {}
+for (const name of workspaceClosure) {
+  const file = workspacePackageFiles.get(name)
+  if (file === undefined) continue
+  dependencies[name] = `file:../../workspace-tarballs/${file}`
 }
 for (const plugin of builtin.plugins ?? []) {
   const packageName = plugin.packageName
@@ -58,24 +124,37 @@ writeFileSync(manifestPath, JSON.stringify({
   dependencies,
 }, null, 2) + '\n')
 
+const overrideLines = []
+for (const [name, file] of workspacePackageFiles) {
+  if (name === '@deepseek-ai/dsh') continue
+  overrideLines.push(`  ${JSON.stringify(name)}: ${JSON.stringify(`file:../../workspace-tarballs/${file}`)}`)
+}
+const subprocessLocalFile = workspacePackageFiles.get('@deepseek-ai/dsh-subprocess-local')
+const subprocessLocalBuildLine = subprocessLocalFile === undefined ? '' : `  ${JSON.stringify(`@deepseek-ai/dsh-subprocess-local@file:../../workspace-tarballs/${subprocessLocalFile}`)}: true\n`
 writeFileSync(join(installRoot, 'pnpm-workspace.yaml'), `packages:
   - .
 
 autoInstallPeers: true
 nodeLinker: hoisted
 
+overrides:
+${overrideLines.join('\n')}
+
 allowBuilds:
   esbuild: true
   node-pty: true
   koffi: true
   '@deepseek-ai/dsh-subprocess-local': true
-  '@google/genai': false
+${subprocessLocalBuildLine}  '@google/genai': false
   protobufjs: false
   node-addon-require-builtin: false
 `)
 
 console.log('[package] install production closure')
-run('pnpm', ['install', '--prod'], { cwd: installRoot })
+run('pnpm', ['install', '--prod', '--registry=https://registry.npmjs.org/'], {
+  cwd: installRoot,
+  env: { ...process.env, npm_config_registry: 'https://registry.npmjs.org/' },
+})
 
 const bin = join(installRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
 if (!existsSync(bin)) {
