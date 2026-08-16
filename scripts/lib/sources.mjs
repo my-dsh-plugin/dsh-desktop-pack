@@ -78,10 +78,14 @@ export function normalizeEntry(entry) {
 
 export function run(command, args, options = {}) {
   const { cwd = ROOT, stdio = 'inherit', env = process.env } = options
-  const result = spawnSync(command, args, { cwd, stdio, env, shell: false })
+  let executable = command
+  if (process.platform === 'win32' && ['pnpm', 'npm', 'npx'].includes(command)) {
+    executable = `${command}.cmd`
+  }
+  const result = spawnSync(executable, args, { cwd, stdio, env, shell: false })
   if (result.error) throw result.error
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${String(result.status)}`)
+    throw new Error(`${executable} ${args.join(' ')} failed with exit code ${String(result.status)}`)
   }
   return result
 }
