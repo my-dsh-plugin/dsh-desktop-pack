@@ -218,7 +218,9 @@ fn main() {
                                             }
                                         }
                                     }
-                                    let _ = reader_window.eval(&format!("window.location.replace({url:?});"));
+                                    if let Ok(parsed) = url::Url::parse(&url) {
+                                        let _ = reader_window.navigate(parsed);
+                                    }
                                 }
                                 Some("update") => {
                                     let current = object.get("current").and_then(|v| v.as_str()).unwrap_or("?").to_owned();
@@ -245,7 +247,9 @@ fn main() {
                                     }
                                     let _ = reader_window.show();
                                     let _ = reader_window.set_focus();
-                                    let _ = reader_window.eval(&format!("window.location.replace({url:?});"));
+                                    if let Ok(parsed) = url::Url::parse(&url) {
+                                        let _ = reader_window.navigate(parsed);
+                                    }
                                 }
                                 Some("fatal") => {
                                     let message = object.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
