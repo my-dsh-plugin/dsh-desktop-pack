@@ -121,11 +121,15 @@ fn main() {
             let port = Arc::new(Mutex::new(None::<u16>));
             let port_for_reader = port.clone();
             let port_for_navigation = port.clone();
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("DeepSeek Harness Desktop")
                 .inner_size(1280.0, 820.0)
-                .min_inner_size(960.0, 640.0)
-                .decorations(false)
+                .min_inner_size(960.0, 640.0);
+            #[cfg(target_os = "macos")]
+            let window_builder = window_builder.decorations(true).hidden_title(true);
+            #[cfg(not(target_os = "macos"))]
+            let window_builder = window_builder.decorations(false);
+            let window = window_builder
                 .on_navigation(move |url| {
                     url.host_str() == Some("127.0.0.1")
                         && url.port() == port_for_navigation.lock().unwrap().as_ref().copied()
