@@ -112,12 +112,18 @@ if (process.platform === 'darwin') {
   const archivePath = resolve(ROOT, 'out', archive)
   rmSync(archivePath, { force: true })
   const startedAt = Date.now()
+  const sevenZip = join(process.env.ProgramFiles ?? 'C:\\Program Files', '7-Zip', '7z.exe')
   try {
-    run('tar', ['-a', '-c', '-f', archivePath, '--options', 'zip:compression-level=1', '-C', resolve(ROOT, 'out'), distName])
-    console.log(`[package] windows zip via tar in ${Math.round((Date.now() - startedAt) / 1000)}s`)
+    if (existsSync(sevenZip)) {
+      run(sevenZip, ['a', '-tzip', '-mx=1', '-mmt=on', '-y', archivePath, distDir])
+      console.log(`[package] windows zip via 7z in ${Math.round((Date.now() - startedAt) / 1000)}s`)
+    } else {
+      run('tar', ['-a', '-c', '-f', archivePath, '--options', 'zip:compression-level=1', '-C', resolve(ROOT, 'out'), distName])
+      console.log(`[package] windows zip via tar in ${Math.round((Date.now() - startedAt) / 1000)}s`)
+    }
   } catch (error) {
     rmSync(archivePath, { force: true })
-    console.warn(`[package] warning: tar zip failed (${error instanceof Error ? error.message : String(error)}); falling back to Compress-Archive`)
+    console.warn(`[package] warning: fast zip failed (${error instanceof Error ? error.message : String(error)}); falling back to Compress-Archive`)
     run('powershell', ['-NoProfile', '-Command', `Compress-Archive -LiteralPath '${distDir}' -DestinationPath '${archivePath}' -Force`])
     console.log(`[package] windows zip via Compress-Archive in ${Math.round((Date.now() - startedAt) / 1000)}s`)
   }
