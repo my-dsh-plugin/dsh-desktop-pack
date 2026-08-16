@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path'
 import { readJson, run, ROOT } from './lib/sources.mjs'
 
 const harness = readJson('harness-source.json')
+const tauriConfig = readJson('src-tauri/tauri.conf.json')
+const appName = tauriConfig.productName ?? 'dsh-desktop'
 const version = harness.version
 const platform = `${process.platform}-${process.arch}`
 const distName = `dsh-desktop-${version}-${platform}`
@@ -31,12 +33,12 @@ mkdirSync(join(distDir, 'data/logs'), { recursive: true })
 cpSync(resolve(ROOT, 'README.md'), join(distDir, 'README.md'))
 cpSync(resolve(ROOT, 'LICENSE'), join(distDir, 'LICENSE'))
 
-const shellApp = resolve(ROOT, 'src-tauri/target/release/bundle/macos/dsh-desktop.app')
+const shellApp = resolve(ROOT, `src-tauri/target/release/bundle/macos/${appName}.app`)
 if (process.platform === 'darwin' && existsSync(shellApp)) {
-  cpSync(shellApp, join(distDir, 'dsh-desktop.app'), { recursive: true })
+  cpSync(shellApp, join(distDir, `${appName}.app`), { recursive: true })
   console.log(`[package] shell app bundled from ${shellApp}`)
 } else if (process.platform === 'darwin') {
-  console.warn('[package] warning: dsh-desktop.app not found; run npm run shell:build before package:dist')
+  console.warn(`[package] warning: ${appName}.app not found; run npm run shell:build before package:dist`)
 }
 
 if (process.platform === 'win32') {
@@ -90,8 +92,8 @@ if (process.platform === 'darwin') {
   rmSync(dmgPath, { force: true })
   rmSync(dmgStage, { recursive: true, force: true })
   mkdirSync(dmgStage, { recursive: true })
-  const appInStage = join(dmgStage, 'dsh-desktop.app')
-  cpSync(join(distDir, 'dsh-desktop.app'), appInStage, { recursive: true })
+  const appInStage = join(dmgStage, `${appName}.app`)
+  cpSync(join(distDir, `${appName}.app`), appInStage, { recursive: true })
   mkdirSync(join(appInStage, 'Contents/Resources'), { recursive: true })
   cpSync(join(distDir, 'runtime'), join(appInStage, 'Contents/Resources/runtime'), { recursive: true })
   cpSync(join(distDir, 'seed-dsh-home'), join(appInStage, 'Contents/Resources/seed-dsh-home'), { recursive: true })

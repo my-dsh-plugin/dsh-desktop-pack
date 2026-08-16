@@ -17,6 +17,7 @@
     "assemble:seed": "node scripts/assemble-seed.mjs",
     "package:runtime": "node scripts/package-runtime.mjs",
     "shell:build": "node scripts/build-shell.mjs",
+    "icon:generate": "node scripts/generate-icons.mjs",
     "package:dist": "node scripts/package-dist.mjs",
     "build": "node scripts/build.mjs"
   },

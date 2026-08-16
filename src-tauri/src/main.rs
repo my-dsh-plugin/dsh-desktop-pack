@@ -122,7 +122,7 @@ fn main() {
             let port_for_reader = port.clone();
             let port_for_navigation = port.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("DSH Desktop")
+                .title("DeepSeek Harness Desktop")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(960.0, 640.0)
                 .on_navigation(move |url| {
@@ -148,7 +148,7 @@ fn main() {
                 .build()?;
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().cloned().expect("default window icon"))
-                .tooltip("DSH Desktop")
+                .tooltip("DeepSeek Harness Desktop")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -233,7 +233,7 @@ fn main() {
                                         let message = format!("发现新版本 {latest}\n当前版本 {current}\n\n{body}");
                                         let handle = reader_window.app_handle().clone();
                                         tauri::async_runtime::spawn(async move {
-                                            handle.dialog().message(message).title("DSH Desktop 更新").show(|_| {});
+                                            handle.dialog().message(message).title("DeepSeek Harness Desktop 更新").show(|_| {});
                                         });
                                     }
                                 }
