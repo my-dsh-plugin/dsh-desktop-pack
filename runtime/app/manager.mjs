@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +13,8 @@ const DEFAULT_HOME = join(ROOT, 'data/dsh-home')
 const SAFE_HOME = join(ROOT, 'data/safe-home')
 const SEED_HOME = join(ROOT, 'seed-dsh-home')
 const HARNESS = join(RUNTIME, 'harness')
+const HOME_INIT_MARKER = '.home-init-done'
+const LEGACY_HOME = join(homedir(), '.dsh')
 
 const CLI_ARGS = new Set(process.argv.slice(2))
 const SAFE_MODE = CLI_ARGS.has('--safe-mode')
@@ -34,6 +37,9 @@ const MAX_RESTARTS = 3
 let diagServer = null
 let diagToken = null
 let diagUrl = null
+let migrationServer = null
+let migrationToken = null
+let migrationUrl = null
 
 function emit(message) {
   process.stdout.write(JSON.stringify(message) + '\n')
@@ -307,6 +313,269 @@ function resolveHarnessBin() {
   return bin
 }
 
+const MIGRATION_ITEMS = [
+  { id: 'sessions', label: '会话记录', path: 'sessions', kind: 'dir', description: '拷贝后保留原 ~/.dsh，可随时回退' },
+  { id: 'storages', label: '状态 / 工作区', path: 'storages', kind: 'dir', description: 'workspace 注册、投影缓存等本地状态' },
+  { id: 'credentials', label: '凭据（包含 API Key）', path: '.credentials.yaml', kind: 'file', secret: true, description: '复制后会强制收紧文件权限' },
+  { id: 'settings', label: '设置', path: 'settings.yaml', kind: 'file', description: '原 seed 设置会备份为 settings.yaml.seed-bak' },
+  { id: 'env', label: '环境变量', path: '.env', kind: 'file', secret: true, default: false, description: '可能包含密钥/代理配置，默认不勾选' },
+  { id: 'anonymous-id', label: '匿名身份', path: '.anonymous-user-id', kind: 'file', description: '保留遥测/反馈匿名身份，避免迁移后身份重置' },
+  { id: 'presets', label: '自装模式', path: '.agent-presets', kind: 'dir', description: 'no-clobber：内置 id 不会被覆盖' },
+  { id: 'plugins', label: '插件（profiles 合并）', path: 'profiles', kind: 'profiles', description: '合并用户依赖与 cordis.patch.yml，不整目录覆盖' },
+]
+
+function migrationOptions() {
+  return MIGRATION_ITEMS
+    .filter((item) => existsSync(join(LEGACY_HOME, item.path)))
+    .map((item) => ({ ...item, default: item.default ?? true }))
+}
+
+function isLegacyHomeUsable() {
+  if (existsSync(LEGACY_HOME) === false) return false
+  try {
+    return readdirSync(LEGACY_HOME).length > 0
+  } catch {
+    return false
+  }
+}
+
+function copyMigratedPath(source, destination, { noClobber = false, dereference = false } = {}) {
+  if (existsSync(source) === false) return
+  mkdirSync(dirname(destination), { recursive: true })
+  cpSync(source, destination, {
+    recursive: true,
+    force: noClobber === false,
+    errorOnExist: false,
+    dereference,
+  })
+}
+
+function migratePresets() {
+  const source = join(LEGACY_HOME, '.agent-presets')
+  const target = join(DSH_HOME, '.agent-presets')
+  if (existsSync(source) === false) return
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (existsSync(to)) continue
+    try {
+      if (statSync(from).isDirectory()) copyMigratedPath(from, to, { noClobber: true })
+    } catch {}
+  }
+}
+
+function harnessYamlModule() {
+  const require = createRequire(resolveHarnessBin())
+  return require('yaml')
+}
+
+function migrateProfiles() {
+  const sourceRoot = join(LEGACY_HOME, 'profiles')
+  const targetRoot = join(DSH_HOME, 'profiles')
+  if (existsSync(sourceRoot) === false) return
+  mkdirSync(targetRoot, { recursive: true })
+
+  for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() === false && entry.isSymbolicLink() === false) continue
+    const sourceProfile = join(sourceRoot, entry.name)
+    if (statSync(sourceProfile).isDirectory() === false) continue
+    const targetProfile = join(targetRoot, entry.name)
+    mkdirSync(targetProfile, { recursive: true })
+
+    const sourcePackagePath = join(sourceProfile, 'package.json')
+    const targetPackagePath = join(targetProfile, 'package.json')
+    if (existsSync(sourcePackagePath)) {
+      const sourcePackage = JSON.parse(readFileSync(sourcePackagePath, 'utf8'))
+      const targetPackage = existsSync(targetPackagePath)
+        ? JSON.parse(readFileSync(targetPackagePath, 'utf8'))
+        : { name: `dsh-profile-${entry.name}`, private: true, dependencies: {} }
+      targetPackage.dependencies = targetPackage.dependencies ?? {}
+      const userDependencies = {}
+      for (const [name, spec] of Object.entries(sourcePackage.dependencies ?? {})) {
+        if (name.startsWith('@deepseek-ai/dsh-')) continue
+        userDependencies[name] = spec
+      }
+      for (const [name, spec] of Object.entries(userDependencies)) {
+        targetPackage.dependencies[name] = spec
+      }
+      writeFileSync(targetPackagePath, JSON.stringify(targetPackage, null, 2) + '\n')
+
+      const sourceNodeModules = join(sourceProfile, 'node_modules')
+      const targetNodeModules = join(targetProfile, 'node_modules')
+      for (const name of Object.keys(userDependencies)) {
+        const from = join(sourceNodeModules, name)
+        const to = join(targetNodeModules, name)
+        if (existsSync(from) === false || existsSync(to)) continue
+        copyMigratedPath(from, to, { noClobber: true, dereference: true })
+      }
+    }
+
+    const sourcePatchPath = join(sourceProfile, 'cordis.patch.yml')
+    if (existsSync(sourcePatchPath)) {
+      const sourceText = readFileSync(sourcePatchPath, 'utf8')
+      if (sourceText.trim() && sourceText.trim() !== '[]') {
+        const YAML = harnessYamlModule()
+        const sourcePatch = YAML.parse(sourceText)
+        const targetPatchPath = join(targetProfile, 'cordis.patch.yml')
+        const targetText = existsSync(targetPatchPath) ? readFileSync(targetPatchPath, 'utf8') : '[]\n'
+        const targetPatch = YAML.parse(targetText)
+        const merged = Array.isArray(targetPatch) && Array.isArray(sourcePatch)
+          ? [...targetPatch, ...sourcePatch]
+          : (sourcePatch ?? [])
+        writeFileSync(targetPatchPath, YAML.stringify(merged, { lineWidth: 0 }) + '\n')
+      }
+    }
+  }
+}
+
+function performMigration(selectedIds) {
+  const selected = new Set(selectedIds)
+  let count = 0
+  for (const item of MIGRATION_ITEMS) {
+    if (selected.has(item.id) === false) continue
+    const source = join(LEGACY_HOME, item.path)
+    if (existsSync(source) === false) continue
+
+    if (item.id === 'sessions' || item.id === 'storages') {
+      copyMigratedPath(source, join(DSH_HOME, item.path), { noClobber: true })
+    } else if (item.id === 'credentials') {
+      const target = join(DSH_HOME, item.path)
+      copyMigratedPath(source, target, { noClobber: true })
+      if (process.platform !== 'win32' && existsSync(target)) chmodSync(target, 0o600)
+    } else if (item.id === 'settings') {
+      const target = join(DSH_HOME, item.path)
+      if (existsSync(target)) {
+        const backup = `${target}.seed-bak`
+        rmSync(backup, { force: true })
+        renameSync(target, backup)
+      }
+      copyMigratedPath(source, target)
+    } else if (item.id === 'presets') {
+      migratePresets()
+    } else if (item.id === 'plugins') {
+      migrateProfiles()
+    } else {
+      copyMigratedPath(source, join(DSH_HOME, item.path), { noClobber: true })
+    }
+    count += 1
+    log('info', `migrated ${item.id} from ${LEGACY_HOME}`)
+  }
+  return count
+}
+
+
+function migrationHtml(options) {
+  const data = JSON.stringify({ source: LEGACY_HOME, options }).replaceAll('<', '\\u003c')
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>首次启动迁移</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0f1115;color:#e6e6e6;display:grid;place-items:center;min-height:100vh}
+.card{width:min(680px,calc(100vw - 48px));background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px}
+h1{font-size:20px;margin:0 0 6px}.sub{color:#8b949e;font-size:13px;margin:0 0 18px}
+.item{display:flex;gap:12px;padding:12px;border:1px solid #30363d;border-radius:10px;margin-bottom:10px;align-items:flex-start}
+.item input{margin-top:2px}.item b{display:block}.item small{color:#8b949e}.secret b::after{content:" 🔑"}
+.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+button{border:0;border-radius:8px;padding:9px 16px;cursor:pointer;font-size:14px}
+.primary{background:#2563eb;color:#fff}.ghost{background:#21262d;color:#c9d1d9}
+#status{margin-top:12px;color:#7ee787;font-size:13px}
+</style></head><body><div class="card">
+<h1>检测到现有 DeepSeek Harness 数据</h1>
+<p class="sub">来源：<code>${LEGACY_HOME}</code><br>选择要迁移到当前桌面版的内容；所有内容均为“拷贝”，原目录保持不变。</p>
+<div id="list"></div>
+<div class="actions"><button class="ghost" onclick="submitMigration([])">跳过</button><button class="primary" onclick="submitMigration()">开始迁移</button></div>
+<div id="status"></div>
+</div>
+<script>
+const data = ${data};
+const token = ${JSON.stringify(migrationToken)};
+const list = document.getElementById('list');
+for (const item of data.options) {
+  const row = document.createElement('div');
+  row.className = 'item' + (item.secret ? ' secret' : '');
+  row.innerHTML = '<input type="checkbox" id="' + item.id + '" value="' + item.id + '"' + (item.default ? ' checked' : '') + '>' +
+    '<label for="' + item.id + '"><b>' + item.label + '</b><small>' + item.description + '</small></label>';
+  list.appendChild(row);
+}
+async function submitMigration(selected) {
+  const items = selected || [...document.querySelectorAll('input:checked')].map(el => el.value);
+  document.getElementById('status').textContent = '正在迁移…';
+  const response = await fetch('/api/migrate?token=' + encodeURIComponent(token), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  const result = await response.json();
+  if (response.ok) {
+    document.getElementById('status').textContent = '迁移完成，正在启动…';
+  } else {
+    document.getElementById('status').textContent = '迁移失败：' + (result.error || response.status);
+  }
+}
+</script></body></html>`
+}
+
+function startMigrationServer() {
+  const options = migrationOptions()
+  if (options.length === 0) return false
+  migrationToken = randomBytes(24).toString('hex')
+  const server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      if (url.pathname === '/' || url.pathname === `/migrate/${migrationToken}`) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(migrationHtml(options))
+        return
+      }
+      if (url.pathname === '/api/migrate' && url.searchParams.get('token') === migrationToken) {
+        if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/json') {
+          sendJson(res, 415, { ok: false, error: 'POST application/json required' })
+          return
+        }
+        const body = await readJsonBody(req)
+        const requested = Array.isArray(body.items) ? body.items.map(String) : []
+        const allowed = new Set(options.map((item) => item.id))
+        const selected = requested.filter((id) => allowed.has(id))
+        performMigration(selected)
+        writeFileSync(join(DSH_HOME, HOME_INIT_MARKER), `${new Date().toISOString()}\n`)
+        sendJson(res, 200, { ok: true, migrated: selected })
+        setTimeout(() => {
+          server.close()
+          migrationServer = null
+          try { startDsh() } catch (error) { startDiag(error instanceof Error ? error.message : String(error)) }
+        }, 150)
+        return
+      }
+      sendJson(res, 404, { ok: false, error: 'not found' })
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+  })
+  server.on('error', (error) => {
+    migrationServer = null
+    log('error', `migration server error: ${error.message}`)
+    mkdirSync(DSH_HOME, { recursive: true })
+    writeFileSync(join(DSH_HOME, HOME_INIT_MARKER), `${new Date().toISOString()}\n`)
+    try { startDsh() } catch (startError) { startDiag(startError instanceof Error ? startError.message : String(startError)) }
+  })
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      server.close()
+      migrationServer = null
+      mkdirSync(DSH_HOME, { recursive: true })
+      writeFileSync(join(DSH_HOME, HOME_INIT_MARKER), `${new Date().toISOString()}\n`)
+      try { startDsh() } catch (startError) { startDiag(startError instanceof Error ? startError.message : String(startError)) }
+      return
+    }
+    migrationServer = server
+    migrationUrl = `http://127.0.0.1:${address.port}/migrate/${migrationToken}`
+    log('info', `migration prompt: ${migrationUrl}`)
+    emit({ type: 'ready', url: migrationUrl, migration: true })
+  })
+  return true
+}
+
+
+
 function copySeedInto(home, { replace = false } = {}) {
   if (!existsSync(SEED_HOME)) return
   mkdirSync(home, { recursive: true })
@@ -326,26 +595,38 @@ function prepareHome() {
     rmSync(DSH_HOME, { recursive: true, force: true })
     mkdirSync(DSH_HOME, { recursive: true })
     log('info', `safe-mode home reset: ${DSH_HOME}`)
-    return
+    return true
   }
 
-  const marker = join(DSH_HOME, '.home-init-done')
+  const marker = join(DSH_HOME, HOME_INIT_MARKER)
   if (RESET_HOME && existsSync(DSH_HOME)) {
     const backup = `${DSH_HOME}.bak-${new Date().toISOString().replaceAll(':', '-')}`
     renameSync(DSH_HOME, backup)
     log('info', `reset-home backed up to ${backup}`)
   }
 
-  if (!existsSync(marker) && existsSync(SEED_HOME) && resolve(DSH_HOME) !== resolve(SEED_HOME)) {
+  if (existsSync(marker) === false && existsSync(SEED_HOME) && resolve(DSH_HOME) !== resolve(SEED_HOME)) {
     copySeedInto(DSH_HOME)
-    writeFileSync(marker, `${new Date().toISOString()}\n`)
     log('info', `seeded home from ${SEED_HOME}`)
   }
+
+  if (existsSync(marker) === false && isLegacyHomeUsable()) {
+    if (startMigrationServer()) {
+      log('info', 'first-run migration prompt shown')
+      return false
+    }
+  }
+
+  if (existsSync(marker) === false) {
+    mkdirSync(DSH_HOME, { recursive: true })
+    writeFileSync(marker, `${new Date().toISOString()}\n`)
+  }
+  return true
 }
 
 function startDsh() {
   const bin = resolveHarnessBin()
-  prepareHome()
+  if (prepareHome() === false) return
   mkdirSync(DSH_HOME, { recursive: true })
   mkdirSync(LOGS, { recursive: true })
   const env = { ...process.env, DSH_HOME }
