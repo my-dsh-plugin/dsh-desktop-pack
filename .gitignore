@@ -6,3 +6,5 @@ build/
 .idea/
 .cache/
 out/
+src-tauri/target/
+src-tauri/gen/

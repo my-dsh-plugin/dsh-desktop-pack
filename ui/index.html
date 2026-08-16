@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DSH Desktop</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0f1115; color: #e6e6e6; }
+      body { display: grid; place-items: center; font-family: system-ui, -apple-system, sans-serif; }
+      .boot { text-align: center; }
+      .dot { display: inline-block; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: #7aa2f7; animation: blink 1s infinite ease-in-out; }
+      .dot:nth-child(2) { animation-delay: .15s; }
+      .dot:nth-child(3) { animation-delay: .3s; }
+      @keyframes blink { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+    </style>
+  </head>
+  <body>
+    <div class="boot">
+      <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <p>正在启动 DeepSeek Harness…</p>
+    </div>
+  </body>
+</html>

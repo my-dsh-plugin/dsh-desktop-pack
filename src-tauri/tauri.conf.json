@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "dsh-desktop",
+  "version": "0.1.0",
+  "identifier": "com.my-dsh-plugin.dsh-desktop",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "DeepSeek Harness desktop client",
+    "longDescription": "Packaged DeepSeek Harness desktop client with bundled presets and plugins.",
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

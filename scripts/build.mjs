@@ -21,6 +21,9 @@ run(process.execPath, ['scripts/fetch-node.mjs'])
 console.log('[build] package runtime')
 run(process.execPath, ['scripts/package-runtime.mjs'])
 
+console.log('[build] build desktop shell')
+run(process.execPath, ['scripts/build-shell.mjs'])
+
 console.log('[build] package distribution')
 run(process.execPath, ['scripts/package-dist.mjs'])
 

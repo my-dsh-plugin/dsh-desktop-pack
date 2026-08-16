@@ -16,8 +16,12 @@
     "build:plugins": "node scripts/build-plugins.mjs",
     "assemble:seed": "node scripts/assemble-seed.mjs",
     "package:runtime": "node scripts/package-runtime.mjs",
+    "shell:build": "node scripts/build-shell.mjs",
     "package:dist": "node scripts/package-dist.mjs",
     "build": "node scripts/build.mjs"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
 }

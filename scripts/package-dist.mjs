@@ -29,6 +29,14 @@ mkdirSync(join(distDir, 'data/logs'), { recursive: true })
 cpSync(resolve(ROOT, 'README.md'), join(distDir, 'README.md'))
 cpSync(resolve(ROOT, 'LICENSE'), join(distDir, 'LICENSE'))
 
+const shellApp = resolve(ROOT, 'src-tauri/target/release/bundle/macos/dsh-desktop.app')
+if (process.platform === 'darwin' && existsSync(shellApp)) {
+  cpSync(shellApp, join(distDir, 'dsh-desktop.app'), { recursive: true })
+  console.log(`[package] shell app bundled from ${shellApp}`)
+} else if (process.platform === 'darwin') {
+  console.warn('[package] warning: dsh-desktop.app not found; run npm run shell:build before package:dist')
+}
+
 const binDir = join(distDir, 'bin')
 mkdirSync(binDir, { recursive: true })
 const sh = `#!/bin/sh
