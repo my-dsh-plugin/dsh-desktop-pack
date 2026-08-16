@@ -125,6 +125,7 @@ fn main() {
                 .title("DeepSeek Harness Desktop")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(960.0, 640.0)
+                .decorations(false)
                 .on_navigation(move |url| {
                     url.host_str() == Some("127.0.0.1")
                         && url.port() == port_for_navigation.lock().unwrap().as_ref().copied()
