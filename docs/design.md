@@ -13,7 +13,7 @@
 ```
 dsh-client-<version>-<platform>/        # 绿色版/便携布局（解压即用，安装目录必须可写）
 ├── runtime/                            # 内化运行时（构建期生成）
-│   ├── node/                           # 便携 Node（win: node-v22-win-x64.zip；mac: darwin-arm64/x64.tar.gz）
+│   ├── node/                           # 便携 Node（win: node-v24-win-x64.zip；mac: darwin-arm64/x64.tar.gz）
 │   ├── app/                            # 打包工程自产 launcher（不含 DSH core）
 │   │   └── manager.mjs                 # ★ 常驻 Node manager：真正的 launcher
 │   └── harness/                        # ★ 外部动态引入的 upstream 自构建 DSH（ADR-016）
