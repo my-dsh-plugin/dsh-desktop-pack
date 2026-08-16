@@ -23,12 +23,12 @@ for (const plugin of builtin.plugins ?? []) {
   }
 
   console.log(`[build] plugin ${plugin.id} install`)
-  for (const command of plugin.build?.install ?? []) {
-    run(command[0], command.slice(1), { cwd: checkout })
+  if (plugin.build?.install?.length) {
+    run(plugin.build.install[0], plugin.build.install.slice(1), { cwd: checkout })
   }
   console.log(`[build] plugin ${plugin.id} build`)
-  for (const command of plugin.build?.command ?? []) {
-    run(command[0], command.slice(1), { cwd: checkout })
+  if (plugin.build?.command?.length) {
+    run(plugin.build.command[0], plugin.build.command.slice(1), { cwd: checkout })
   }
 
   const pkg = JSON.parse(readFileSync(join(checkout, 'package.json'), 'utf8'))
@@ -45,6 +45,10 @@ for (const plugin of builtin.plugins ?? []) {
     mkdirSync(join(to, '..'), { recursive: true })
     cpSync(from, to, { recursive: true, filter: (src) => !src.includes(`${join(checkout, '.git')}`) })
   }
+  const tarball = join(outRoot, `${plugin.id}.tgz`)
+  rmSync(tarball, { force: true })
+  console.log(`[build] plugin ${plugin.id} pack -> ${tarball}`)
+  run('pnpm', ['pack', '--out', tarball], { cwd: checkout })
   console.log(`[build] plugin ${plugin.id} -> ${target}`)
 }
 console.log('[build] plugins done')

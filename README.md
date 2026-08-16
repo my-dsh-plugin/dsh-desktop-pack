@@ -77,12 +77,18 @@ npm run sources:fetch
 # 2. 校验 manifest 与 lock 一致
 npm run sources:verify
 
-# 3. 构建 harness / 插件 / 组装 seed
+# 3. 构建 harness / 插件 / 组装 seed / 便携 Node / 运行时
 npm run build:harness
 npm run build:plugins
+npm run package:harness
 npm run assemble:seed
+npm run fetch:node
+npm run package:runtime
 
-# 4. 完整打包入口（构建顺序：verify -> harness -> plugins -> seed）
+# 4. 生成本平台绿色版 zip
+npm run package:dist
+
+# 5. 完整构建（verify -> harness -> plugins -> package harness -> seed -> node -> runtime -> dist）
 npm run build
 ```
 

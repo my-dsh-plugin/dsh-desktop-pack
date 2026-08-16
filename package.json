@@ -10,9 +10,13 @@
   "scripts": {
     "sources:fetch": "node scripts/fetch-sources.mjs",
     "sources:verify": "node scripts/fetch-sources.mjs --verify",
+    "fetch:node": "node scripts/fetch-node.mjs",
     "build:harness": "node scripts/build-harness.mjs",
+    "package:harness": "node scripts/package-harness.mjs",
     "build:plugins": "node scripts/build-plugins.mjs",
     "assemble:seed": "node scripts/assemble-seed.mjs",
+    "package:runtime": "node scripts/package-runtime.mjs",
+    "package:dist": "node scripts/package-dist.mjs",
     "build": "node scripts/build.mjs"
   },
   "license": "Apache-2.0"

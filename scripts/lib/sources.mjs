@@ -22,6 +22,7 @@ export function loadSourceEntries() {
     ref: harness.source.ref,
     commit: harness.source.commit,
     path: harness.source.path ?? '.',
+    checkout: harness.source.checkout,
   }))
 
   const modes = builtin.modes
@@ -51,7 +52,9 @@ export function normalizeEntry(entry) {
   const id = entry.id
   if (typeof id !== 'string' || id.length === 0) throw new Error('source entry requires id')
   const kind = entry.kind ?? 'git'
-  const checkout = resolve(CACHE_DIR, id)
+  const checkout = typeof entry.checkout === 'string'
+    ? (isAbsolute(entry.checkout) ? entry.checkout : resolve(CACHE_DIR, entry.checkout))
+    : resolve(CACHE_DIR, id)
   if (kind === 'git') {
     if (typeof entry.repo !== 'string' || entry.repo.length === 0) throw new Error(`${id}: git source requires repo`)
     if (typeof entry.ref !== 'string' || entry.ref.length === 0) throw new Error(`${id}: git source requires ref`)

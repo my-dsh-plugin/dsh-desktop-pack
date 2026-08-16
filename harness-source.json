@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
   "id": "harness",
+  "version": "20260816.1",
   "source": {
     "kind": "git",
     "repo": "https://github.com/deepseek-ai/deepseek-harness",
     "ref": "refs/heads/master",
-    "commit": "47f943859bef60e4160492346772ded9b24f765a"
+    "commit": "47f943859bef60e4160492346772ded9b24f765a",
+    "checkout": "deepseek-harness"
   },
   "build": {
     "install": ["pnpm", "install", "--frozen-lockfile"],

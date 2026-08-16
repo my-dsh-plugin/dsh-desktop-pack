@@ -20,11 +20,11 @@ if (!existsSync(checkout)) {
 
 const build = manifest.build ?? {}
 console.log(`[build] harness install @ ${checkout}`)
-for (const command of build.install ?? []) {
-  run(command[0], command.slice(1), { cwd: checkout })
+if (build.install?.length) {
+  run(build.install[0], build.install.slice(1), { cwd: checkout })
 }
 console.log('[build] harness build')
-for (const command of build.command ?? []) {
-  run(command[0], command.slice(1), { cwd: checkout })
+if (build.command?.length) {
+  run(build.command[0], build.command.slice(1), { cwd: checkout })
 }
 console.log('[build] harness done')

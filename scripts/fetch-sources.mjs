@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
-import { ensureCacheDir, git, loadSourceEntries, readLock, writeLock } from './lib/sources.mjs'
+import { relative } from 'node:path'
+import { ensureCacheDir, git, loadSourceEntries, readLock, ROOT, writeLock } from './lib/sources.mjs'
 
 const verifyOnly = process.argv.includes('--verify')
 
@@ -83,7 +84,7 @@ for (const entry of entries) {
     repo: entry.repo ?? null,
     ref: entry.ref ?? null,
     commit: commit ?? entry.commit ?? null,
-    checkout: entry.kind === 'local' ? entry.checkout : `.cache/sources/${entry.id}`,
+    checkout: entry.kind === 'local' ? entry.checkout : relative(ROOT, entry.checkout),
   }
 }
 delete lock.updatedAt

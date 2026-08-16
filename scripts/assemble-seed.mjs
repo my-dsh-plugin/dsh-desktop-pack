@@ -68,3 +68,4 @@ for (const plugin of builtin.plugins ?? []) {
 }
 
 console.log(`[seed] assembled -> ${seedRoot}`)
+console.log('[seed] plugin runtime dependencies resolve through DSH profile module fallback to the harness closure')

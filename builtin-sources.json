@@ -47,7 +47,7 @@
       "packageName": "dsh-agent-mode-switcher",
       "bundleName": "dsh-agent-mode-switcher",
       "build": {
-        "install": ["pnpm", "install", "--frozen-lockfile"],
+        "install": ["pnpm", "install", "--frozen-lockfile", "--config.auto-install-peers=true"],
         "command": ["pnpm", "build"]
       }
     }
