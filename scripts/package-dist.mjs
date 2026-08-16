@@ -6,8 +6,10 @@ const harness = readJson('harness-source.json')
 const tauriConfig = readJson('src-tauri/tauri.conf.json')
 const appName = tauriConfig.productName ?? 'dsh-desktop'
 const version = harness.version
-const platform = `${process.platform}-${process.arch}`
-const distName = `dsh-desktop-${version}-${platform}`
+const platformName = process.platform === 'darwin' ? 'macos' : (process.platform === 'win32' ? 'windows' : process.platform)
+const platform = `${platformName}-${process.arch}`
+const packageStem = appName.replace(/\s+/g, '-')
+const distName = `${packageStem}-${version}-${platform}`
 const distDir = resolve(ROOT, 'out', distName)
 
 const runtimeDir = resolve(ROOT, 'out/runtime')
