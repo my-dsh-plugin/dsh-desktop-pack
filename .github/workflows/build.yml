@@ -47,28 +47,44 @@ jobs:
         run: npm run sources:fetch
 
       - name: Build harness
-        run: npm run build:harness
+        shell: bash
+        run: set -o pipefail; npm run build:harness 2>&1 | tee build-harness.log
 
       - name: Build plugins
-        run: npm run build:plugins
+        shell: bash
+        run: set -o pipefail; npm run build:plugins 2>&1 | tee build-plugins.log
 
       - name: Package harness
-        run: npm run package:harness
+        shell: bash
+        run: set -o pipefail; npm run package:harness 2>&1 | tee package-harness.log
 
       - name: Assemble seed
-        run: npm run assemble:seed
+        shell: bash
+        run: set -o pipefail; npm run assemble:seed 2>&1 | tee assemble-seed.log
 
       - name: Fetch Node runtime
-        run: npm run fetch:node
+        shell: bash
+        run: set -o pipefail; npm run fetch:node 2>&1 | tee fetch-node.log
 
       - name: Package runtime
-        run: npm run package:runtime
+        shell: bash
+        run: set -o pipefail; npm run package:runtime 2>&1 | tee package-runtime.log
 
       - name: Build shell
-        run: npm run shell:build
+        shell: bash
+        run: set -o pipefail; npm run shell:build 2>&1 | tee build-shell.log
 
       - name: Package distribution
-        run: npm run package:dist
+        shell: bash
+        run: set -o pipefail; npm run package:dist 2>&1 | tee package-dist.log
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-logs-${{ matrix.platform }}
+          path: "*.log"
+          if-no-files-found: ignore
 
       - name: Upload package
         uses: actions/upload-artifact@v4
