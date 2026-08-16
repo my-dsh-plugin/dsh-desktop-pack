@@ -1,6 +1,6 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { readJson, run, ROOT } from './lib/sources.mjs'
+import { copyTree, readJson, run, ROOT } from './lib/sources.mjs'
 
 const harness = readJson('harness-source.json')
 const tauriConfig = readJson('src-tauri/tauri.conf.json')
@@ -27,17 +27,17 @@ for (const [label, path] of [
 rmSync(distDir, { recursive: true, force: true })
 mkdirSync(distDir, { recursive: true })
 
-cpSync(runtimeDir, join(distDir, 'runtime'), { recursive: true })
-cpSync(seedDir, join(distDir, 'seed-dsh-home'), { recursive: true })
-cpSync(seedDir, join(distDir, 'data/dsh-home'), { recursive: true })
+copyTree(runtimeDir, join(distDir, 'runtime'))
+copyTree(seedDir, join(distDir, 'seed-dsh-home'))
+copyTree(seedDir, join(distDir, 'data/dsh-home'))
 writeFileSync(join(distDir, 'data/dsh-home/.home-init-done'), `${new Date().toISOString()}\n`)
 mkdirSync(join(distDir, 'data/logs'), { recursive: true })
-cpSync(resolve(ROOT, 'README.md'), join(distDir, 'README.md'))
-cpSync(resolve(ROOT, 'LICENSE'), join(distDir, 'LICENSE'))
+copyTree(resolve(ROOT, 'README.md'), join(distDir, 'README.md'))
+copyTree(resolve(ROOT, 'LICENSE'), join(distDir, 'LICENSE'))
 
 const shellApp = resolve(ROOT, `src-tauri/target/release/bundle/macos/${appName}.app`)
 if (process.platform === 'darwin' && existsSync(shellApp)) {
-  cpSync(shellApp, join(distDir, `${appName}.app`), { recursive: true })
+  copyTree(shellApp, join(distDir, `${appName}.app`))
   console.log(`[package] shell app bundled from ${shellApp}`)
 } else if (process.platform === 'darwin') {
   console.warn(`[package] warning: ${appName}.app not found; run npm run shell:build before package:dist`)
@@ -46,7 +46,7 @@ if (process.platform === 'darwin' && existsSync(shellApp)) {
 if (process.platform === 'win32') {
   const shellExe = resolve(ROOT, 'src-tauri/target/release/dsh-desktop.exe')
   if (existsSync(shellExe)) {
-    cpSync(shellExe, join(distDir, 'dsh-desktop.exe'))
+    copyTree(shellExe, join(distDir, 'dsh-desktop.exe'))
     console.log(`[package] shell exe bundled from ${shellExe}`)
   } else {
     console.warn('[package] warning: dsh-desktop.exe not found; run npm run shell:build before package:dist')
@@ -56,7 +56,7 @@ if (process.platform === 'win32') {
     const installer = readdirSync(nsisDir).find((name) => name.endsWith('-setup.exe'))
     if (installer) {
       mkdirSync(join(distDir, 'installer'), { recursive: true })
-      cpSync(join(nsisDir, installer), join(distDir, 'installer', installer))
+      copyTree(join(nsisDir, installer), join(distDir, 'installer', installer))
       console.log(`[package] NSIS installer bundled: ${installer}`)
     }
   }
@@ -95,10 +95,10 @@ if (process.platform === 'darwin') {
   rmSync(dmgStage, { recursive: true, force: true })
   mkdirSync(dmgStage, { recursive: true })
   const appInStage = join(dmgStage, `${appName}.app`)
-  cpSync(join(distDir, `${appName}.app`), appInStage, { recursive: true })
+  copyTree(join(distDir, `${appName}.app`), appInStage)
   mkdirSync(join(appInStage, 'Contents/Resources'), { recursive: true })
-  cpSync(join(distDir, 'runtime'), join(appInStage, 'Contents/Resources/runtime'), { recursive: true })
-  cpSync(join(distDir, 'seed-dsh-home'), join(appInStage, 'Contents/Resources/seed-dsh-home'), { recursive: true })
+  copyTree(join(distDir, 'runtime'), join(appInStage, 'Contents/Resources/runtime'))
+  copyTree(join(distDir, 'seed-dsh-home'), join(appInStage, 'Contents/Resources/seed-dsh-home'))
   symlinkSync('/Applications', join(dmgStage, 'Applications'))
   console.log('[package] create dmg via hdiutil')
   try {

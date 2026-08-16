@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, resolve } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -83,6 +83,41 @@ function windowsCommandLine(command, args) {
     return text
   }
   return [command, ...args].map(quote).join(' ')
+}
+
+export function copyTree(source, destination, options = {}) {
+  const info = lstatSync(source)
+  const filter = options.filter ?? (() => true)
+  if (filter(source) === false) return
+  if (info.isSymbolicLink()) {
+    mkdirSync(dirname(destination), { recursive: true })
+    const target = readlinkSync(source)
+    if (process.platform === 'win32') {
+      let type = 'file'
+      try {
+        type = statSync(join(dirname(source), target)).isDirectory() ? 'junction' : 'file'
+      } catch {
+        type = 'file'
+      }
+      symlinkSync(target, destination, type)
+    } else {
+      symlinkSync(target, destination)
+    }
+    return
+  }
+  if (info.isDirectory()) {
+    mkdirSync(destination, { recursive: true })
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      copyTree(join(source, entry.name), join(destination, entry.name), options)
+    }
+    return
+  }
+  if (info.isFile()) {
+    mkdirSync(dirname(destination), { recursive: true })
+    copyFileSync(source, destination)
+    return
+  }
+  throw new Error(`copyTree does not support ${source}`)
 }
 
 export function run(command, args, options = {}) {

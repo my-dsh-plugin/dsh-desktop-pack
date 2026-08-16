@@ -1,6 +1,6 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { readJson, ROOT } from './lib/sources.mjs'
+import { copyTree, readJson, ROOT } from './lib/sources.mjs'
 
 const outRuntime = resolve(ROOT, 'out/runtime')
 const harnessOut = resolve(ROOT, 'out/harness')
@@ -20,12 +20,12 @@ for (const [label, path] of [
 }
 
 rmSync(join(outRuntime, 'harness'), { recursive: true, force: true })
-cpSync(harnessOut, join(outRuntime, 'harness'), { recursive: true })
+copyTree(harnessOut, join(outRuntime, 'harness'))
 
 const managerTarget = join(outRuntime, 'app')
 rmSync(managerTarget, { recursive: true, force: true })
 mkdirSync(managerTarget, { recursive: true })
-cpSync(resolve(ROOT, 'runtime/app/manager.mjs'), join(managerTarget, 'manager.mjs'))
+copyTree(resolve(ROOT, 'runtime/app/manager.mjs'), join(managerTarget, 'manager.mjs'))
 
 writeFileSync(join(outRuntime, 'manifest.json'), JSON.stringify({
   schemaVersion: 1,
