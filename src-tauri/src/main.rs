@@ -7,6 +7,7 @@ use std::{
 };
 
 use serde_json::Value;
+use tauri_plugin_dialog::DialogExt;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -52,6 +53,7 @@ fn main() {
     eprintln!("[shell] package root: {}", root.display());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -176,11 +178,17 @@ fn main() {
                                     let _ = reader_window.eval(&format!("window.location.replace({url:?});"));
                                 }
                                 Some("update") => {
-                                    let current = object.get("current").and_then(|v| v.as_str()).unwrap_or("?");
-                                    let latest = object.get("latest").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let current = object.get("current").and_then(|v| v.as_str()).unwrap_or("?").to_owned();
+                                    let latest = object.get("latest").and_then(|v| v.as_str()).unwrap_or("?").to_owned();
                                     let available = object.get("available").and_then(|v| v.as_bool()).unwrap_or(false);
                                     if available {
                                         eprintln!("[shell] update available: {current} -> {latest}");
+                                        let body = object.get("body").and_then(|v| v.as_str()).unwrap_or("").chars().take(1200).collect::<String>();
+                                        let message = format!("发现新版本 {latest}\n当前版本 {current}\n\n{body}");
+                                        let handle = reader_window.app_handle().clone();
+                                        tauri::async_runtime::spawn(async move {
+                                            handle.dialog().message(message).title("DSH Desktop 更新").show(|_| {});
+                                        });
                                     }
                                 }
                                 Some("diag") => {
