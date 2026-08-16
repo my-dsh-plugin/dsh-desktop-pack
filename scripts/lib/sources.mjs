@@ -82,7 +82,10 @@ export function run(command, args, options = {}) {
   if (process.platform === 'win32' && ['pnpm', 'npm', 'npx'].includes(command)) {
     executable = `${command}.cmd`
   }
-  const result = spawnSync(executable, args, { cwd, stdio, env, shell: false })
+  const childEnv = ['pnpm', 'npm', 'npx'].includes(command)
+    ? { ...env, npm_config_auto_install_peers: env.npm_config_auto_install_peers ?? 'true' }
+    : env
+  const result = spawnSync(executable, args, { cwd, stdio, env: childEnv, shell: false })
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`${executable} ${args.join(' ')} failed with exit code ${String(result.status)}`)

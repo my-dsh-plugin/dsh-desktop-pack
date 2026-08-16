@@ -1,6 +1,20 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { readJson, readLock, resolveCheckout, run, ROOT } from './lib/sources.mjs'
+
+function alignPnpmAutoInstallPeers(checkout) {
+  const lockPath = join(checkout, 'pnpm-lock.yaml')
+  const workspacePath = join(checkout, 'pnpm-workspace.yaml')
+  if (!existsSync(lockPath) || !existsSync(workspacePath)) return
+  const lock = readFileSync(lockPath, 'utf8')
+  const workspace = readFileSync(workspacePath, 'utf8')
+  const lockMatch = lock.match(/^settings:\s*\n(?:^\s+.*\n)*?^\s+autoInstallPeers:\s*(true|false)\s*$/m)
+  const workspaceMatch = workspace.match(/^autoInstallPeers:\s*(true|false)\s*$/m)
+  if (!lockMatch || !workspaceMatch || lockMatch[1] === workspaceMatch[1]) return
+  const aligned = workspace.replace(/^autoInstallPeers:\s*(?:true|false)\s*$/m, `autoInstallPeers: ${lockMatch[1]}`)
+  writeFileSync(workspacePath, aligned)
+  console.log(`[build] align ${workspacePath}: autoInstallPeers=${lockMatch[1]}`)
+}
 
 const builtin = readJson('builtin-sources.json')
 const lock = readLock()
@@ -21,6 +35,7 @@ for (const plugin of builtin.plugins ?? []) {
     console.error(`plugin ${plugin.id} checkout missing: ${checkout}`)
     process.exit(1)
   }
+  alignPnpmAutoInstallPeers(checkout)
 
   console.log(`[build] plugin ${plugin.id} install`)
   if (plugin.build?.install?.length) {
