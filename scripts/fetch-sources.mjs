@@ -19,6 +19,12 @@ function fetchGit(entry) {
   if (!existsSync(checkout)) {
     console.log(`[sources] clone ${id}: ${repo}`)
     git(['clone', '--filter=blob:none', '--no-checkout', repo, checkout])
+  } else {
+    const currentRemote = String(git(['remote', 'get-url', 'origin'], { cwd: checkout, stdio: ['ignore', 'pipe', 'inherit'] }).stdout).trim()
+    if (currentRemote && currentRemote !== repo) {
+      console.log(`[sources] remote changed ${id}: ${currentRemote} -> ${repo}`)
+      git(['remote', 'set-url', 'origin', repo], { cwd: checkout })
+    }
   }
   console.log(`[sources] fetch ${id}: ${commit}`)
   const fetchedCommit = (() => {

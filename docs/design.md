@@ -16,7 +16,7 @@ dsh-client-<version>-<platform>/        # 绿色版/便携布局（解压即用�
 │   ├── node/                           # 便携 Node（win: node-v24-win-x64.zip；mac: darwin-arm64/x64.tar.gz）
 │   ├── app/                            # 打包工程自产 launcher（不含 DSH core）
 │   │   └── manager.mjs                 # ★ 常驻 Node manager：真正的 launcher
-│   └── harness/                        # ★ 外部动态引入的 upstream 自构建 DSH（ADR-016）
+│   └── harness/                        # ★ 外部动态引入的 fork 自构建 DSH（ADR-016）
 │       ├── current.json                # 发布态 { "version": "<yyyyMMdd.n>" }；开发态 { "path": "<外部构建产物>" }
 │       └── versions/<version>/         # 每版本完整 harness（node_modules/@deepseek-ai/dsh/lib/bin.js）
 ├── data/                               # ★ 运行时数据（= DSH_HOME，ADR-008）
@@ -42,17 +42,17 @@ dsh-client-<version>-<platform>/        # 绿色版/便携布局（解压即用�
 - 程序（runtime/）与数据（data/）分离：清理数据不破坏程序，重装不丢数据
 - macOS dmg 形态为自包含 `dsh-desktop.app`（runtime/seed 内嵌 Resources），用户数据在 `~/Library/Application Support/dsh-desktop/`，详见 §6.3
 
-## 3. runtime：便携 Node + 外部动态引入 upstream 自构建 harness（ADR-016）
+## 3. runtime：便携 Node + 外部动态引入 fork 自构建 harness（ADR-016）
 
 - **本仓库是打包工程**：不放置 DSH core 源码/构建产物；`harness-source.json` 支持 **npm / git / local** 三种来源（ADR-026）：
-  - `git`：发布默认 deepseek-ai/deepseek-harness 的 pinned ref/commit
+  - `git`：发布默认 my-dsh-plugin/deepseek-harness 的 pinned ref/commit
   - `npm`：记录 package/version/integrity，解析后进入同一打包流程
   - `local`：本地源码/构建产物绝对路径，仅开发联调；发布 CI 拒绝
 - 照抄 dsh-installers 方案：官方 Node 发行包 + SHA256 校验（Node 部分不变）
-- **DSH 核心 = 构建期按来源解析后 `pnpm build` 自构建**（web-app bundle + base/headless），**默认不装 upstream npm 包**；打包脚本生成 `runtime/harness/versions/<version>/`，补丁随 upstream 版本记录（见 §9 补丁清单）
+- **DSH 核心 = 构建期按来源解析后 `pnpm build` 自构建**（web-app bundle + base/headless），**默认不装 upstream npm 包**；打包脚本生成 `runtime/harness/versions/<version>/`，补丁随 fork 版本记录（见 §9 补丁清单）
 - **动态引入/切换**：manager 每次启动 DSH 前读取 `runtime/harness/current.json` 的 `version` 字段，解析到 `versions/<version>/node_modules/@deepseek-ai/dsh/lib/bin.js`；不依赖 symlink/junction
-- **开发态**：`current.json` 可指向外部 upstream 构建产物路径；**发布态**：只允许指向 `versions/` 内已校验版本
-- 版本策略：捆绑核心版本号 `yyyyMMdd.n`（ADR-025，跟随 upstream 版本），旧版本目录保留可回滚
+- **开发态**：`current.json` 可指向外部 fork 构建产物路径；**发布态**：只允许指向 `versions/` 内已校验版本
+- 版本策略：捆绑核心版本号 `yyyyMMdd.n`（ADR-025，跟随 fork 版本），旧版本目录保留可回滚
 - 可回滚：新增版本目录 → 校验 → 原子翻转 `current.json`；失败/新核心有问题 → 翻回旧版本号（ADR-014）
 
 ## 4. seed-dsh-home：预置内容
@@ -183,7 +183,7 @@ HARNESS_BIN="$RUNTIME/harness/versions/$HARNESS_VERSION/node_modules/@deepseek-a
 
 **应用本体 → GitHub Release（主渠道，ADR-014/016，策略 ADR-023）**：
 - 每版本在 GitHub Release 发布 runtime 更新包 + shell 整包，附版本号 + SHA256（+ 可选签名）
-- **捆绑核心 = deepseek-ai/deepseek-harness 源码自构建**（版本 `yyyyMMdd.n`，ADR-025，非 upstream npm），版本节奏跟随 upstream 版本
+- **捆绑核心 = my-dsh-plugin/deepseek-harness 源码自构建**（版本 `yyyyMMdd.n`，ADR-025，非 upstream npm），版本节奏跟随 fork 版本
 - **自动检测、手动更新、双平面替换**（ADR-023）：
   1. 启动静默检查 + 常驻每 24h 后台检查（可关）→ 有新版本托盘角标/通知提示，不自动下载
   2. 用户确认后下载到 `data/update-staging/` 并做 SHA256 校验
@@ -298,16 +298,16 @@ HARNESS_BIN="$RUNTIME/harness/versions/$HARNESS_VERSION/node_modules/@deepseek-a
 - [x] 更新策略 → ADR-023：自动检测、手动更新（设计更新器小节）
 - [ ] 更新面板原型：版本对比 + changelog + 确认 → 下载 → 校验 → 替换（ADR-023）
 
-## 9. Harness 补丁清单（deepseek-ai/deepseek-harness）
+## 9. Harness 补丁清单（my-dsh-plugin/deepseek-harness）
 
-捆绑 upstream 源码自构建（ADR-016），本清单记录发行版对核心的本地修改，升级 upstream 时按此重放/核对：
+捆绑 fork 源码自构建（ADR-016），本清单记录发行版对核心的本地修改，fork 同步 upstream 时按此重放/核对：
 
 - [ ] （空——当前无发行版专属补丁；ADR-015 备选"扁平化完成事件 + 白名单"若启用则在此登记）
 
 ## 10. 版本号速查（统一 `yyyyMMdd.n`，ADR-025）
 
 - 发行版（dsh-desktop-pack）：`yyyyMMdd.n`（UTC 日期，n 从 1 起，如 `20260211.1`），GitHub Release 发布
-- 捆绑核心（deepseek-ai/deepseek-harness）：同格式；upstream 基座（基于哪个 upstream commit/版本）记录在 release notes，不进版本号
+- 捆绑核心（my-dsh-plugin/deepseek-harness）：同格式；upstream 基座（基于哪个 upstream commit/版本）记录在 release notes，不进版本号
 - 模式（dsh-presets）：preset.yml `version` 同格式
 - 所有比较：解析为 `(yyyyMMdd, n)` 两个整数做数值比较，**禁止字典序字符串比较**（避免 `20260211.10 < 20260211.9`）
 - `requires.dsh`：日期版本下限（如 `"dsh": ">=20260211.1"`），用同一比较器

@@ -3,9 +3,9 @@
   "sources": {
     "harness": {
       "kind": "git",
-      "repo": "https://github.com/deepseek-ai/deepseek-harness",
-      "ref": "refs/heads/master",
-      "commit": "47f943859bef60e4160492346772ded9b24f765a",
+      "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
+      "ref": "refs/heads/personal-dev",
+      "commit": "e604050797f59bd33650263a21e83f6772bfd28e",
       "checkout": ".cache/sources/deepseek-harness"
     },
     "modes": {

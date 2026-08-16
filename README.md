@@ -1,6 +1,6 @@
 # dsh-desktop-pack
 
-自研 DeepSeek Harness (DSH) 分发包：**打包工程**，harness 从 deepseek-ai/deepseek-harness 外部动态引入；预置自研模式与插件、内化 Node、随机回环端口、WebView 壳。
+自研 DeepSeek Harness (DSH) 分发包：**打包工程**，harness 从 my-dsh-plugin/deepseek-harness 外部动态引入；预置自研模式与插件、内化 Node、随机回环端口、WebView 壳。
 
 本仓库是**设计/研究仓库**：先把结论写下来，防止遗忘；实施在后续阶段进行。
 
@@ -31,7 +31,7 @@ dsh-client-<version>-<platform>/
 │   ├── node/                          # 便携 Node（官方下载 + SHA256 校验，参考 codeAnqiang-ma/dsh-installers）
 │   ├── app/
 │   │   └── manager.mjs                # 打包工程自产 launcher
-│   └── harness/                       # ★ 外部动态引入的 upstream 自构建 DSH
+│   └── harness/                       # ★ 外部动态引入的 fork 自构建 DSH
 │       ├── current.json               # 当前版本指针
 │       └── versions/<version>/        # 每版本完整 harness
 ├── seed-dsh-home/                     # ★ 特异化核心：预置 DSH_HOME
