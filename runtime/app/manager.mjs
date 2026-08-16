@@ -1,5 +1,7 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +31,9 @@ let child = null
 let shuttingDown = false
 let restarts = 0
 const MAX_RESTARTS = 3
+let diagServer = null
+let diagToken = null
+let diagUrl = null
 
 function emit(message) {
   process.stdout.write(JSON.stringify(message) + '\n')
@@ -88,6 +93,201 @@ async function checkForUpdates() {
   } catch (error) {
     log('warn', `update check failed: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+function readDiagLogs() {
+  const logs = {}
+  for (const name of ['dsh-latest.out', 'dsh-latest.log']) {
+    const file = join(LOGS, name)
+    logs[name] = existsSync(file) ? readFileSync(file, 'utf8').slice(-120_000) : ''
+  }
+  return logs
+}
+
+function patchFilePath() {
+  return join(DSH_HOME, 'profiles/web/cordis.patch.yml')
+}
+
+function readPatchFile() {
+  const file = patchFilePath()
+  return { file, text: existsSync(file) ? readFileSync(file, 'utf8') : '[]\n' }
+}
+
+function writePatchText(text) {
+  const file = patchFilePath()
+  mkdirSync(join(file, '..'), { recursive: true })
+  writeFileSync(file, text)
+  return file
+}
+
+function appendDisabledPatch(id) {
+  const safeId = String(id).replaceAll('"', '\\"')
+  const flow = `{ id: "${safeId}", disabled: true }`
+  const current = readPatchFile().text
+  if (!current.trim() || current.trim() === '[]') {
+    return writePatchText(`[\n  ${flow}\n]\n`)
+  }
+  const match = current.match(/(\s*)\]\s*$/)
+  if (!match) return writePatchText(`${current.trimEnd()}\n- ${flow}\n`)
+  return writePatchText(`${current.slice(0, match.index)}- ${flow}\n]\n`)
+}
+
+function runConfigDump() {
+  try {
+    const bin = resolveHarnessBin()
+    const result = spawnSync(RUN_NODE, [bin, 'web', '--dump-config'], {
+      cwd: process.env.DSH_CWD || homedir(),
+      env: { ...process.env, DSH_HOME },
+      encoding: 'utf8',
+      timeout: 20_000,
+      maxBuffer: 10 * 1024 * 1024,
+    })
+    return {
+      ok: result.status === 0,
+      code: result.status,
+      stdout: (result.stdout ?? '').slice(-200_000),
+      stderr: (result.stderr ?? '').slice(-40_000),
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+function collectDiagnostics() {
+  return {
+    home: DSH_HOME,
+    safeMode: SAFE_MODE,
+    logs: readDiagLogs(),
+    patch: readPatchFile(),
+    dump: runConfigDump(),
+  }
+}
+
+function diagHtml() {
+  const diagnostics = collectDiagnostics()
+  const data = JSON.stringify(diagnostics).replaceAll('<', '\\u003c')
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>DSH 故障排查</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f1115;color:#e6e6e6;margin:24px;max-width:1200px}
+h1{font-size:20px}.row{display:flex;gap:12px;margin:12px 0}
+button{background:#2563eb;border:0;color:white;padding:8px 14px;border-radius:8px;cursor:pointer}
+button.danger{background:#b91c1c}pre{background:#111827;border:1px solid #374151;border-radius:8px;padding:12px;overflow:auto;max-height:360px}
+label{display:block;margin-top:10px;color:#93c5fd}input{width:340px;padding:6px;border-radius:6px;border:1px solid #374151;background:#111827;color:white}
+</style></head><body>
+<h1>DSH 故障排查</h1><div class="row"><button onclick="postAction('retry')">重启应用</button>
+<button class="danger" onclick="postAction('reset-home')">重置 Home（备份后恢复 seed）</button>
+<button onclick="postAction('clear-patches')">恢复全部 patch</button></div>
+<div><label>禁用单个插件（entry id）</label><input id="id" placeholder="例如 thinking-level-override">
+<button onclick="postAction('disable',document.getElementById('id').value)">禁用</button></div>
+<h2>启动日志</h2><pre id="logs"></pre><h2>有效配置（dsh web --dump-config）</h2><pre id="dump"></pre>
+<script>
+const diagnostics=${data};
+const token=location.pathname.split('/').filter(Boolean)[1];
+document.getElementById('logs').textContent=(diagnostics.logs['dsh-latest.log']||'')+(diagnostics.logs['dsh-latest.out']||'');
+document.getElementById('dump').textContent=diagnostics.dump.stdout||diagnostics.dump.stderr||diagnostics.dump.error||'';
+async function postAction(action,id){const body=id?JSON.stringify({id}):'{}';const r=await fetch('/api/'+action+'?token='+encodeURIComponent(token),{method:'POST',headers:{'content-type':'application/json'},body});const t=await r.text();if(r.ok&&action==='retry'){document.body.innerHTML='<h2>正在重启…</h2>';return;}alert(t.slice(0,1000));}
+</script></body></html>`
+}
+
+function sendJson(res, status, value) {
+  const body = JSON.stringify(value)
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+  res.end(body)
+}
+
+async function readJsonBody(req) {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  if (chunks.length === 0) return {}
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
+function startDiag(reason) {
+  if (diagServer) return
+  diagToken = randomBytes(16).toString('hex')
+  const server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      const token = url.searchParams.get('token') ?? ''
+      if (url.pathname === `/diag/${diagToken}/`) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(diagHtml())
+        return
+      }
+      if (url.pathname === `/diag/${token}/`) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(diagHtml())
+        return
+      }
+      if (token !== diagToken) {
+        sendJson(res, 403, { ok: false, error: 'forbidden' })
+        return
+      }
+      if (url.pathname === '/api/state' && req.method === 'GET') {
+        sendJson(res, 200, { ok: true, ...collectDiagnostics() })
+        return
+      }
+      if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/json') {
+        sendJson(res, 415, { ok: false, error: 'POST application/json required' })
+        return
+      }
+      const body = await readJsonBody(req)
+      if (url.pathname === '/api/disable') {
+        const id = String(body.id ?? '').trim()
+        if (!id) return sendJson(res, 400, { ok: false, error: 'id required' })
+        const file = appendDisabledPatch(id)
+        return sendJson(res, 200, { ok: true, disabled: id, file })
+      }
+      if (url.pathname === '/api/clear-patches') {
+        writePatchText('[]\n')
+        return sendJson(res, 200, { ok: true })
+      }
+      if (url.pathname === '/api/retry') {
+        server.close()
+        diagServer = null
+        restarts = 0
+        sendJson(res, 200, { ok: true, retrying: true })
+        setTimeout(() => {
+          try { startDsh() } catch (error) { startDiag(error instanceof Error ? error.message : String(error)) }
+        }, 200)
+        return
+      }
+      if (url.pathname === '/api/reset-home') {
+        if (SAFE_MODE) return sendJson(res, 400, { ok: false, error: 'safe mode has no home to reset' })
+        if (existsSync(DSH_HOME)) {
+          renameSync(DSH_HOME, `${DSH_HOME}.bak-${new Date().toISOString().replaceAll(':', '-')}`)
+        }
+        if (existsSync(SEED_HOME)) copySeedInto(DSH_HOME)
+        writeFileSync(join(DSH_HOME, '.home-init-done'), `${new Date().toISOString()}\n`)
+        server.close()
+        diagServer = null
+        restarts = 0
+        sendJson(res, 200, { ok: true, reset: true, retrying: true })
+        setTimeout(() => {
+          try { startDsh() } catch (error) { startDiag(error instanceof Error ? error.message : String(error)) }
+        }, 200)
+        return
+      }
+      sendJson(res, 404, { ok: false, error: 'not found' })
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+  })
+  server.on('error', (error) => {
+    diagServer = null
+    log('error', `diag server error: ${error.message}`)
+  })
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      server.close()
+      return
+    }
+    diagServer = server
+    diagUrl = `http://127.0.0.1:${address.port}/diag/${diagToken}/`
+    log('warn', `diag mode: ${reason} -> ${diagUrl}`)
+    emit({ type: 'diag', url: diagUrl, reason })
+  })
 }
 
 function resolveHarnessBin() {
@@ -154,6 +354,8 @@ function startDsh() {
   } else {
     env.PATH = `${join(RUNTIME, 'node', 'bin')}:${env.PATH ?? ''}`
   }
+  writeFileSync(join(LOGS, 'dsh-latest.out'), '')
+  writeFileSync(join(LOGS, 'dsh-latest.log'), '')
   child = spawn(RUN_NODE, [bin, 'web', '--port', '0'], {
     cwd: process.env.DSH_CWD || homedir(),
     env,
@@ -172,8 +374,8 @@ function startDsh() {
       return
     }
     if (restarts >= MAX_RESTARTS) {
-      emit({ type: 'fatal', message: `dsh exited ${restarts} times; giving up` })
-      process.exit(code ?? 1)
+      startDiag(`dsh exited ${restarts + 1} times (last code ${String(code)})`)
+      return
     }
     restarts += 1
     const delay = Math.min(1000 * 2 ** restarts, 5000)
@@ -191,6 +393,10 @@ function pipeLines(stream, streamName) {
     while ((index = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, index).replace(/\r$/, '')
       buffer = buffer.slice(index + 1)
+      const logFile = streamName === 'stdout' ? 'dsh-latest.out' : 'dsh-latest.log'
+      try {
+        appendFileSync(join(LOGS, logFile), `${line}\n`)
+      } catch {}
       if (streamName === 'stdout') {
         const match = line.match(/dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/)
         if (match) emit({ type: 'ready', url: match[1] })
@@ -237,6 +443,7 @@ process.stdin.on('data', (chunk) => {
     }
     if (command.type === 'shutdown') shutdown('SIGTERM')
     else if (command.type === 'check-update') void checkForUpdates()
+    else if (command.type === 'diag') startDiag('manual')
     else if (command.type === 'restart' && child) {
       restarts = 0
       child.kill('SIGTERM')
@@ -255,10 +462,13 @@ if (CLI_ARGS.has('--update-check')) void checkForUpdates()
 else setTimeout(() => void checkForUpdates(), 3000).unref()
 setInterval(() => void checkForUpdates(), 24 * 60 * 60 * 1000).unref()
 try {
-  startDsh()
+  if (CLI_ARGS.has('--diag')) {
+    startDiag('manual')
+  } else {
+    startDsh()
+  }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
   log('error', message)
-  emit({ type: 'fatal', message })
-  process.exit(1)
+  startDiag(message)
 }

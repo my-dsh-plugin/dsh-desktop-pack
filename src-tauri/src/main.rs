@@ -88,11 +88,13 @@ fn main() {
 
             let tray_window = window.clone();
             let open_item = MenuItemBuilder::with_id("open", "打开主界面").build(app)?;
+            let diag_item = MenuItemBuilder::with_id("diag", "故障排查").build(app)?;
             let update_item = MenuItemBuilder::with_id("check-update", "检查更新").build(app)?;
             let restart_item = MenuItemBuilder::with_id("restart", "重启").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
             let tray_menu = MenuBuilder::new(app)
                 .item(&open_item)
+                .item(&diag_item)
                 .item(&update_item)
                 .item(&restart_item)
                 .separator()
@@ -115,6 +117,13 @@ fn main() {
                         let mut guard = state.stdin.lock().unwrap();
                         if let Some(stdin) = guard.as_mut() {
                             let _ = writeln!(stdin, "{{\"type\":\"check-update\"}}");
+                        }
+                    }
+                    "diag" => {
+                        let state = app.state::<ManagerProcess>();
+                        let mut guard = state.stdin.lock().unwrap();
+                        if let Some(stdin) = guard.as_mut() {
+                            let _ = writeln!(stdin, "{{\"type\":\"diag\"}}");
                         }
                     }
                     "restart" => app.restart(),
@@ -173,6 +182,19 @@ fn main() {
                                     if available {
                                         eprintln!("[shell] update available: {current} -> {latest}");
                                     }
+                                }
+                                Some("diag") => {
+                                    let url = object.get("url").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+                                    if let Ok(parsed) = url::Url::parse(&url) {
+                                        if parsed.host_str() == Some("127.0.0.1") {
+                                            if let Some(p) = parsed.port() {
+                                                *port_for_reader.lock().unwrap() = Some(p);
+                                            }
+                                        }
+                                    }
+                                    let _ = reader_window.show();
+                                    let _ = reader_window.set_focus();
+                                    let _ = reader_window.eval(&format!("window.location.replace({url:?});"));
                                 }
                                 Some("fatal") => {
                                     let message = object.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
