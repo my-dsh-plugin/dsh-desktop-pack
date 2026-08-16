@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { readJson, run, ROOT } from './lib/sources.mjs'
 
@@ -35,6 +35,25 @@ if (process.platform === 'darwin' && existsSync(shellApp)) {
   console.log(`[package] shell app bundled from ${shellApp}`)
 } else if (process.platform === 'darwin') {
   console.warn('[package] warning: dsh-desktop.app not found; run npm run shell:build before package:dist')
+}
+
+if (process.platform === 'win32') {
+  const shellExe = resolve(ROOT, 'src-tauri/target/release/dsh-desktop.exe')
+  if (existsSync(shellExe)) {
+    cpSync(shellExe, join(distDir, 'dsh-desktop.exe'))
+    console.log(`[package] shell exe bundled from ${shellExe}`)
+  } else {
+    console.warn('[package] warning: dsh-desktop.exe not found; run npm run shell:build before package:dist')
+  }
+  const nsisDir = resolve(ROOT, 'src-tauri/target/release/bundle/nsis')
+  if (existsSync(nsisDir)) {
+    const installer = readdirSync(nsisDir).find((name) => name.endsWith('-setup.exe'))
+    if (installer) {
+      mkdirSync(join(distDir, 'installer'), { recursive: true })
+      cpSync(join(nsisDir, installer), join(distDir, 'installer', installer))
+      console.log(`[package] NSIS installer bundled: ${installer}`)
+    }
+  }
 }
 
 const binDir = join(distDir, 'bin')

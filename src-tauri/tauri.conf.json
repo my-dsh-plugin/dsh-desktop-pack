@@ -18,7 +18,8 @@
     "active": true,
     "targets": [
       "app",
-      "dmg"
+      "dmg",
+      "nsis"
     ],
     "category": "DeveloperTool",
     "shortDescription": "DeepSeek Harness desktop client",
