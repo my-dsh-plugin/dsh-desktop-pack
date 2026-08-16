@@ -37,7 +37,7 @@
 - [Is Progressive Disclosure All You Need (arXiv 2607.17598)](https://www.alphaxiv.org/overview/2607.17598)：首个受控研究——渐进披露有效但取决于设计
 - [cocoloop 论坛](http://www.cocoloop.cn/t/topic/4956/7)：DSv4 系统指令位置敏感（放最后一条消息末尾才管用）
 
-## 5. 源码证据位置（deepseek-harness-fork）
+## 5. 源码证据位置（deepseek-ai/deepseek-harness）
 
 | 机制 | 位置 |
 |---|---|

@@ -159,7 +159,7 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
 
 **问题**：装了几十上百个插件，只有一个炸了，`--reset-home` 重装全部不能接受。恢复必须能**逐个排查**。
 
-**DSH 现状（已核实源码，deepseek-harness-fork）**：
+**DSH 现状（已核实源码，deepseek-ai/deepseek-harness）**：
 
 1. **启动失败点名报错**：`boot()` 尾部 `assertEntriesActivated` 审计所有 enabled 条目——任何 apply 失败 / inject 挂起 / 模块加载失败的条目，都会 throw 一条错误，**逐条列出插件名 + 原始 stack**（`<name>: <stack>`）；模块解析失败则 `plugin(s) failed to load: X, Y`。后续未捕获 rejection 由 `installFailLoud` 打印 `fatal load failure: <stack>` 后 exit(1)。→ **日志天然点名，不需要猜**。
 2. **disabled 是合法状态**：`assertEntriesLoaded` 明确"disabled 条目是唯一合法的无 fiber 状态"，禁用条目启动时直接跳过。`EntryOptions.disabled` 支持布尔或 `!!js` 表达式（条件禁用），祖先 group 禁用会级联。
@@ -180,7 +180,7 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
 - 恢复向导在 **Node manager（launcher）层**实现（spawn dsh → 解析 stdout/stderr → 写 patch → 重启），因为 boot 失败发生在 Web 服务起来之前，GUI 靠不住
 - `--safe-mode` 走隔离 home（ADR-008）：safe-home 能出 URL → 问题在用户配置/插件/模式；safe-home 也起不来 → 问题在 runtime/core/Node，直接转更新/回滚路径
 - 启动失败 UI 入口 = 恢复向导（非 DSH GUI）：点名列表 + 禁用/详情/二分/手动编辑 patch
-- 本方案不需要给 deepseek-harness-fork 增加 `--safe-mode` / `--bisect` 补丁
+- 本方案不需要给 deepseek-ai/deepseek-harness 增加 `--safe-mode` / `--bisect` 补丁
 - 待验证：preset（模式）的 cordis.yml 是否支持用户 patch 层（preset 经 agentPresets 服务挂载，非 include 树）；不支持则模式内某行炸了走"第 2 级禁用该模式 + 其余模式不受影响"（preset 是 per-session 独立子树，一个模式失败不影响其他会话，需实测确认）
 
 ## ADR-012：恢复向导 —— launcher 自带 UI，禁用走 patch、卸载走基础文件
@@ -244,21 +244,21 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
 - bundle 预置插件支持 `dsh.client` 行（host 半 + client 半成对，node 半是 layer-2 host）
 
 **结论**：
-- **通道（首发）**：预置 bundle 插件对——host 半监听 `agent/status` 聚合完成标记；client 半轮询 `host.call('notify:take')`（Package-private RPC，本地回环 ~1s，顺带上报焦点状态）。**零 fork 源码**
-- **升级备选**：实时性不可接受时，fork 加扁平化完成事件 + 白名单（需改 core，payload 纯数据化），后置
+- **通道（首发）**：预置 bundle 插件对——host 半监听 `agent/status` 聚合完成标记；client 半轮询 `host.call('notify:take')`（Package-private RPC，本地回环 ~1s，顺带上报焦点状态）。**零补丁**
+- **升级备选**：实时性不可接受时，给 upstream 加扁平化完成事件 + 白名单（需改 core，payload 纯数据化），后置
 - **失焦检测（client 半）**：`!document.hasFocus() || document.visibilityState !== 'visible'`（切走 + 最小化都覆盖）
 - **通知走页面 Web Notification**：跨平台一致、点击聚焦天然、不依赖宿主脚本；壳层配套 = WebView2 配置 AppUserModelID（Windows toast 归属）、WKWebView 通知中心、首次授权 WebView 自动请求——权限/AUMID 配置列入壳层实测项
 - 设置项：开关默认开；失焦才弹，聚焦静默
 
-## ADR-016：DSH 版本策略 —— 打包工程外部动态引入 fork 自构建 harness
+## ADR-016：DSH 版本策略 —— 打包工程外部动态引入 upstream 自构建 harness
 
-**结论**：`dsh-desktop-pack` 定位为**打包工程**，仓库内不放置 DSH core 源码与构建产物。发行版捆绑的 DSH 核心**不是 upstream npm `@deepseek-ai/dsh`，而是 deepseek-harness-fork 源码自构建产物**；构建期从外部 fork 仓库按 ref/commit 检出，发布期按 `current.json` 动态指向 `runtime/harness/versions/<version>/`，版本节奏跟随 fork 发版。
+**结论**：`dsh-desktop-pack` 定位为**打包工程**，仓库内不放置 DSH core 源码与构建产物。发行版默认从 **deepseek-ai/deepseek-harness upstream 源码自构建**（pin 到 ref/commit），也可按 ADR-026 切换 npm / local 来源；发布期按 `current.json` 动态指向 `runtime/harness/versions/<version>/`。
 
-**理由**：我们要在核心上打补丁（如 ADR-015 备选的白名单扁平事件、未来可能的修复），upstream 节奏不可控；打包工程不 vendoring core，外部引入让"换 harness 版本 = 加目录 + 翻指针"，打包与回滚都简单。
+**理由**：upstream 是 DSH 的权威来源；打包工程不 vendoring core，外部引入让"换 harness 版本 = 加目录 + 翻指针"，打包与回滚都简单。如后续需要核心补丁，可把 harness 来源切到 fork 或 local 源码，不改变打包框架。
 
 **配套机制**：
-1. **外部来源锁定**：打包仓库维护 `harness-source.json`：支持 `npm` / `git` / `local` 三种 `kind`（ADR-026）；发布默认 `git` = deepseek-harness-fork 的 pinned ref/commit，不把源码或 node_modules 提交进本仓库
-2. **构建来源**：按来源 kind 解析到本地后，fork 源码 `pnpm install/build` 产出（web-app bundle + base/headless bundles），打包脚本生成平台 harness 目录 `harness-<version>-<platform>/`，替代 dsh-installers 的 `npm install @deepseek-ai/dsh` 配方；`npm` kind 记录 package/version/integrity，`local` 仅限开发
+1. **外部来源锁定**：打包仓库维护 `harness-source.json`：支持 `npm` / `git` / `local` 三种 `kind`（ADR-026）；发布默认 `git` = deepseek-ai/deepseek-harness 的 pinned ref/commit，不把源码或 node_modules 提交进本仓库
+2. **构建来源**：按来源 kind 解析到本地后，upstream 源码 `pnpm install/build` 产出（web-app bundle + base/headless bundles），打包脚本生成平台 harness 目录 `harness-<version>-<platform>/`，替代 dsh-installers 的 `npm install @deepseek-ai/dsh` 配方；`npm` kind 记录 package/version/integrity，`local` 仅限开发
 3. **运行时布局**：
    ```
    runtime/harness/
@@ -268,12 +268,12 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
            └── node_modules/@deepseek-ai/dsh/lib/bin.js
    ```
    manager 启动 DSH 前读取 `current.json` 解析 `versions/<version>/...`；跨平台不依赖 symlink/junction
-4. **开发态外部直连**：`current.json` 支持指向外部 fork 构建产物的路径（本地开发）；发布包只允许指向 `versions/` 内已校验版本
+4. **开发态外部直连**：`current.json` 支持指向外部 upstream 构建产物的路径（本地开发）；发布包只允许指向 `versions/` 内已校验版本
 5. **替换与回滚**：新增版本 = 解包到 `versions/<new>/` 并全量校验；切换 = 临时文件 + rename 原子写 `current.json`；回滚 = 翻回旧版本号；旧目录保留 N 份后清理
 6. **版本号方案**：统一 `yyyyMMdd.n`（UTC 日期，n 从 1 起；ADR-025）——比较解析为 `(yyyyMMdd, n)` 两个整数做数值比较，禁止字典序字符串比较；upstream 基座（基于哪个 upstream commit/版本）记录在 release notes，不进版本号
-7. **fork 同步策略**：**按需同步 upstream**（有需要的修复/特性时合入），平时 fork 保持自洽不追；fork 仓库维护**本地补丁清单文档**（记录每个补丁：内容/动机/上游合入状态），同步时按清单重放/核对
-8. **升级路径**：fork 合入 upstream → 重放补丁 → build → 打包 harness 版本目录 → 随 GitHub Release 发 runtime/harness 更新包（ADR-014）→ 用户更新后翻转 `current.json`；**核心仍统一走发行版发版，不开放绕过发行的独立通道**
-9. **风险边界**：fork 落后 upstream 时用户拿不到上游新特性——可接受（我们的目标用户以我们的发版为准）；需要上游某修复时"按需同步"即时补上
+7. **upstream 版本策略**：升级 = 更新 `harness-source.json` 的 pinned commit/tag → 重新 build/打包/发版；如需本地补丁，把来源切到 fork 或 local 并维护 design §9 补丁清单
+8. **升级路径**：build → 打包 harness 版本目录 → 随 GitHub Release 发 runtime/harness 更新包（ADR-014）→ 用户更新后翻转 `current.json`；**核心仍统一走发行版发版，不开放绕过发行的独立通道**
+9. **风险边界**：upstream 更新后用户拿不到新特性——可接受（我们的目标用户以我们的发版为准）；需要上游某修复时升级 pinned commit 即时跟进
 
 ## ADR-017：sandbox 默认配置 —— workspace-write
 
@@ -409,7 +409,7 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
 
 **理由**：用户指定"暂定 yyyyMMdd.no"；日期版本对"模式昨天有没有更新"一目了然、生成简单（生成器读 **UTC 日期**即可）、无 semver 语义负担（我们不需要 semver 的 major/minor 兼容语义）。**代价**：不表达兼容性语义——由 release notes（breaking 标注）+ schemaVersion（格式兼容）+ requires.dsh（核心下限）兜底。
 
-**注意**：upstream 基座信息（fork 基于哪个 upstream commit/版本）从版本号移入 release notes（ADR-016 同步更新）。
+**注意**：upstream 基座信息（基于哪个 commit/版本）从版本号移入 release notes（ADR-016 同步更新）。
 
 ## ADR-026：内置内容来源动态配置 —— harness 支持 npm/git/本地，内置插件支持 git/本地绝对路径
 
@@ -423,14 +423,14 @@ macOS 安装包形态中 `<install>` 指 `~/Applications/dsh-client`，`dsh-clie
   "schemaVersion": 1,
   "source": {
     "kind": "git",
-    "repo": "my-dsh-plugin/deepseek-harness-fork",
+    "repo": "my-dsh-plugin/deepseek-ai/deepseek-harness",
     "ref": "refs/tags/dsh-20260211.1",
     "commit": "<pinned-sha>"
   }
 }
 ```
 - `kind: "npm"`：记录 `package`、`version`、`integrity`，解析到本地后再走打包流程
-- `kind: "git"`：发布默认使用 deepseek-harness-fork 的 ref/commit（ADR-016），禁止只写可变分支
+- `kind: "git"`：发布默认使用 deepseek-ai/deepseek-harness 的 ref/commit（ADR-016），禁止只写可变分支
 - `kind: "local"`：记录本地源码/构建产物**绝对路径**，仅供开发联调；发布 CI 拒绝 local 来源
 - 无论哪种来源，打包后都落到 `runtime/harness/versions/<version>/`，运行时仍由 `current.json` 选择
 

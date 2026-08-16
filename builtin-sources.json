@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "modes": {
+    "kind": "git",
+    "repo": "https://github.com/my-dsh-plugin/dsh-presets",
+    "ref": "refs/heads/main",
+    "commit": "47c61bb7a87646785b73c352b443bab7c2fb166e",
+    "include": [
+      "anchored-minimal",
+      "flash-boost",
+      "readonly-audit"
+    ]
+  },
+  "plugins": [
+    {
+      "id": "thinking-level-override",
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/thinking-level-override",
+      "ref": "refs/heads/main",
+      "commit": "fe450bd1911203a4a611849a899baf60d0d5f77f",
+      "packageName": "dsh-thinking-level-override",
+      "bundleName": "dsh-thinking-level-override",
+      "build": {
+        "install": ["pnpm", "install", "--frozen-lockfile"],
+        "command": ["pnpm", "build"]
+      }
+    },
+    {
+      "id": "session-archive-manager",
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/session-archive-manager",
+      "ref": "refs/heads/main",
+      "commit": "c48952ee975d91905ecae8013da0a1b09f077c65",
+      "packageName": "dsh-session-archive-manager",
+      "bundleName": "dsh-session-archive-manager",
+      "build": {
+        "install": ["pnpm", "install", "--frozen-lockfile"],
+        "command": ["pnpm", "build"]
+      }
+    },
+    {
+      "id": "agent-mode-switcher",
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/agent-mode-switcher",
+      "ref": "refs/heads/main",
+      "commit": "63d67a6e93d92a8d95ef13000c238240c457112e",
+      "packageName": "dsh-agent-mode-switcher",
+      "bundleName": "dsh-agent-mode-switcher",
+      "build": {
+        "install": ["pnpm", "install", "--frozen-lockfile"],
+        "command": ["pnpm", "build"]
+      }
+    }
+  ]
+}

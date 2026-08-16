@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "harness": {
+      "kind": "git",
+      "repo": "https://github.com/deepseek-ai/deepseek-harness",
+      "ref": "refs/heads/master",
+      "commit": "47f943859bef60e4160492346772ded9b24f765a",
+      "checkout": ".cache/sources/harness"
+    },
+    "modes": {
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/dsh-presets",
+      "ref": "refs/heads/main",
+      "commit": "47c61bb7a87646785b73c352b443bab7c2fb166e",
+      "checkout": ".cache/sources/modes"
+    },
+    "thinking-level-override": {
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/thinking-level-override",
+      "ref": "refs/heads/main",
+      "commit": "fe450bd1911203a4a611849a899baf60d0d5f77f",
+      "checkout": ".cache/sources/thinking-level-override"
+    },
+    "session-archive-manager": {
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/session-archive-manager",
+      "ref": "refs/heads/main",
+      "commit": "c48952ee975d91905ecae8013da0a1b09f077c65",
+      "checkout": ".cache/sources/session-archive-manager"
+    },
+    "agent-mode-switcher": {
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/agent-mode-switcher",
+      "ref": "refs/heads/main",
+      "commit": "63d67a6e93d92a8d95ef13000c238240c457112e",
+      "checkout": ".cache/sources/agent-mode-switcher"
+    }
+  }
+}

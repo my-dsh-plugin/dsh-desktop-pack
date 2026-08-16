@@ -1,0 +1,19 @@
+{
+  "name": "dsh-desktop-pack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness 桌面客户端打包工程：harness 外部动态引入，预置模式与插件，macOS/Windows 双平台。",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "sources:fetch": "node scripts/fetch-sources.mjs",
+    "sources:verify": "node scripts/fetch-sources.mjs --verify",
+    "build:harness": "node scripts/build-harness.mjs",
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "assemble:seed": "node scripts/assemble-seed.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "license": "Apache-2.0"
+}
