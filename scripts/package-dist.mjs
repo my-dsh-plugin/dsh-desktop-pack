@@ -111,7 +111,13 @@ if (process.platform === 'darwin') {
   archive = `${distName}.zip`
   const archivePath = resolve(ROOT, 'out', archive)
   rmSync(archivePath, { force: true })
-  run('powershell', ['-NoProfile', '-Command', `Compress-Archive -LiteralPath '${distDir}' -DestinationPath '${archivePath}' -Force`])
+  try {
+    run('tar', ['-a', '-c', '-f', archivePath, '-C', resolve(ROOT, 'out'), distName])
+  } catch (error) {
+    rmSync(archivePath, { force: true })
+    console.warn(`[package] warning: tar zip failed (${error instanceof Error ? error.message : String(error)}); falling back to Compress-Archive`)
+    run('powershell', ['-NoProfile', '-Command', `Compress-Archive -LiteralPath '${distDir}' -DestinationPath '${archivePath}' -Force`])
+  }
 } else {
   archive = `${distName}.tar.gz`
   rmSync(resolve(ROOT, 'out', archive), { force: true })
