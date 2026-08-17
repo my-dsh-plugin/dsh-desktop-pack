@@ -71,25 +71,28 @@ dsh-client-<version>-<platform>/
 ## 五、开发与打包
 
 ```bash
+# 0. 安装依赖（pnpm；锁文件 pnpm-lock.yaml）
+pnpm install
+
 # 1. 按 manifest 拉取全部源码到 .cache/sources，并生成 sources.lock.json
-npm run sources:fetch
+pnpm run sources:fetch
 
 # 2. 校验 manifest 与 lock 一致
-npm run sources:verify
+pnpm run sources:verify
 
 # 3. 构建 harness / 插件 / 组装 seed / 便携 Node / 运行时
-npm run build:harness
-npm run build:plugins
-npm run package:harness
-npm run assemble:seed
-npm run fetch:node
-npm run package:runtime
+pnpm run build:harness
+pnpm run build:plugins
+pnpm run package:harness
+pnpm run assemble:seed
+pnpm run fetch:node
+pnpm run package:runtime
 
 # 4. 生成本平台绿色版 zip
-npm run package:dist
+pnpm run package:dist
 
 # 5. 完整构建（verify -> harness -> plugins -> package harness -> seed -> node -> runtime -> dist）
-npm run build
+pnpm run build
 ```
 
 来源配置：

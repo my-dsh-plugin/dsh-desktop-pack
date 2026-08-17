@@ -14,7 +14,7 @@ for (const [label, path] of [
 ]) {
   if (!existsSync(path)) {
     console.error(`${label} missing: ${path}`)
-    console.error('run: npm run package:harness && npm run fetch:node')
+    console.error('run: pnpm run package:harness && pnpm run fetch:node')
     process.exit(1)
   }
 }

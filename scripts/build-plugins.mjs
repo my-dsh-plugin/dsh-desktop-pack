@@ -23,7 +23,7 @@ const outRoot = resolve(ROOT, 'out/plugins')
 for (const plugin of builtin.plugins ?? []) {
   const source = lock.sources[plugin.id]
   if (!source) {
-    console.error(`plugin ${plugin.id} not fetched yet; run: npm run sources:fetch`)
+    console.error(`plugin ${plugin.id} not fetched yet; run: pnpm run sources:fetch`)
     process.exit(1)
   }
   if (source.commit !== plugin.commit) {

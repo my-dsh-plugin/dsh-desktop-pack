@@ -7,7 +7,7 @@ const manifest = readJson('harness-source.json')
 const lock = readLock()
 const source = lock.sources.harness
 if (!source) {
-  console.error('harness source not fetched yet; run: npm run sources:fetch')
+  console.error('harness source not fetched yet; run: pnpm run sources:fetch')
   process.exit(1)
 }
 const checkout = resolveCheckout(source.checkout)

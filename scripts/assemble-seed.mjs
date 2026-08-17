@@ -10,7 +10,7 @@ rmSync(seedRoot, { recursive: true, force: true })
 // 1. Modes from dsh-presets.
 const modesSource = lock.sources.modes
 if (!modesSource?.checkout) {
-  console.error('modes source not fetched yet; run: npm run sources:fetch')
+  console.error('modes source not fetched yet; run: pnpm run sources:fetch')
   process.exit(1)
 }
 const modesCheckout = resolveCheckout(modesSource.checkout)
@@ -58,7 +58,7 @@ for (const plugin of builtin.plugins ?? []) {
   if (!packageName) continue
   const built = join(ROOT, 'out/plugins', plugin.id, packageName)
   if (!existsSync(built)) {
-    console.error(`plugin ${plugin.id} not built yet; run: npm run build:plugins`)
+    console.error(`plugin ${plugin.id} not built yet; run: pnpm run build:plugins`)
     process.exit(1)
   }
   const to = join(profileModules, packageName)

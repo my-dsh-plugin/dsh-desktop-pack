@@ -19,7 +19,7 @@ for (const [label, path] of [
   ['seed', join(seedDir, '.agent-presets')],
 ]) {
   if (!existsSync(path)) {
-    console.error(`${label} missing: ${path}; run npm run build first`)
+    console.error(`${label} missing: ${path}; run pnpm run build first`)
     process.exit(1)
   }
 }
@@ -40,7 +40,7 @@ if (process.platform === 'darwin' && existsSync(shellApp)) {
   copyTree(shellApp, join(distDir, `${appName}.app`))
   console.log(`[package] shell app bundled from ${shellApp}`)
 } else if (process.platform === 'darwin') {
-  console.warn(`[package] warning: ${appName}.app not found; run npm run shell:build before package:dist`)
+  console.warn(`[package] warning: ${appName}.app not found; run pnpm run shell:build before package:dist`)
 }
 
 if (process.platform === 'win32') {
@@ -49,7 +49,7 @@ if (process.platform === 'win32') {
     copyTree(shellExe, join(distDir, 'dsh-desktop.exe'))
     console.log(`[package] shell exe bundled from ${shellExe}`)
   } else {
-    console.warn('[package] warning: dsh-desktop.exe not found; run npm run shell:build before package:dist')
+    console.warn('[package] warning: dsh-desktop.exe not found; run pnpm run shell:build before package:dist')
   }
   const nsisDir = resolve(ROOT, 'src-tauri/target/release/bundle/nsis')
   if (existsSync(nsisDir)) {
