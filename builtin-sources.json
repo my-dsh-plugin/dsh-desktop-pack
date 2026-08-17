@@ -50,6 +50,19 @@
         "install": ["pnpm", "install", "--frozen-lockfile", "--config.auto-install-peers=true"],
         "command": ["pnpm", "build"]
       }
+    },
+    {
+      "id": "dsh-skill-manager",
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/dsh-skill-manager",
+      "ref": "refs/heads/main",
+      "commit": "bb91c2408f16d5570f7f8394a9f57c8298491b14",
+      "packageName": "dsh-skill-manager",
+      "bundleName": "dsh-skill-manager",
+      "build": {
+        "install": ["pnpm", "install", "--frozen-lockfile"],
+        "command": ["pnpm", "build"]
+      }
     }
   ]
 }

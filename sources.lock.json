@@ -35,6 +35,13 @@
       "ref": "refs/heads/main",
       "commit": "63d67a6e93d92a8d95ef13000c238240c457112e",
       "checkout": ".cache/sources/agent-mode-switcher"
+    },
+    "dsh-skill-manager": {
+      "kind": "git",
+      "repo": "https://github.com/my-dsh-plugin/dsh-skill-manager",
+      "ref": "refs/heads/main",
+      "commit": "bb91c2408f16d5570f7f8394a9f57c8298491b14",
+      "checkout": ".cache/sources/dsh-skill-manager"
     }
-  }
+ }
 }
