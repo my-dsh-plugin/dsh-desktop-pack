@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-shell-titlebar",
+  "description": "Desktop-shell chrome: drag-region dragging, window theme mirroring (web page is the theme authority), double-click-to-maximize on the top strip.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
+    "core:window:allow-toggle-maximize"
+  ]
+}

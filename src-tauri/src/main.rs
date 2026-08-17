@@ -77,6 +77,16 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
     None
 }
 
+/// Desktop-chrome injection for the main webview: a 32px draggable top strip
+/// (overlay title bar with macOS traffic lights / Windows caption buttons),
+/// plus a Windows-only mirror of the page's resolved theme into the window
+/// theme. The page's own theme stays authoritative: the script only reads
+/// `color-scheme` / `body[data-ds-dark-theme]` and never writes page state.
+fn desktop_chrome_script() -> String {
+    include_str!("../chrome/desktop-chrome.js")
+        .replace("__DSH_DESKTOP_SYNC_WINDOW_THEME__", if cfg!(target_os = "windows") { "true" } else { "false" })
+}
+
 fn spawn_manager(paths: &RuntimePaths) -> std::io::Result<Child> {
     let mut command = Command::new(&paths.node);
     command
@@ -130,12 +140,13 @@ fn main() {
             let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("DeepSeek Harness Desktop")
                 .inner_size(1280.0, 820.0)
-                .min_inner_size(960.0, 640.0);
+                .min_inner_size(960.0, 640.0)
+                .initialization_script(&desktop_chrome_script());
             #[cfg(target_os = "macos")]
-            let window_builder = window_builder.decorations(true).hidden_title(true);
+            let window_builder = window_builder.decorations(true);
             #[cfg(target_os = "windows")]
             let window_builder = window_builder
-                .decorations(true)
+                .decorations(false)
                 .minimizable(true)
                 .maximizable(true)
                 .closable(true);
