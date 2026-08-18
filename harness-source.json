@@ -1,17 +1,24 @@
 {
   "schemaVersion": 1,
   "id": "harness",
-  "version": "20260818.1",
+  "version": "20260819.1",
   "source": {
     "kind": "git",
     "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
     "ref": "refs/heads/personal-dev",
-    "commit": "718e1636e5e8686000a273a4373379eb7c25e928",
+    "commit": "66c3b23aff7a065f033e48b514c9118c3140a1f2",
     "checkout": "deepseek-harness"
   },
   "build": {
-    "install": ["pnpm", "install", "--frozen-lockfile"],
-    "command": ["pnpm", "build"],
+    "install": [
+      "pnpm",
+      "install",
+      "--frozen-lockfile"
+    ],
+    "command": [
+      "pnpm",
+      "build"
+    ],
     "package": "@deepseek-ai/dsh",
     "packageDir": "apps/cli"
   }
