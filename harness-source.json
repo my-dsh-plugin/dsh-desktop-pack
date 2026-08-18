@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "id": "harness",
-  "version": "20260816.2",
+  "version": "20260818.1",
   "source": {
     "kind": "git",
     "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
     "ref": "refs/heads/personal-dev",
-    "commit": "e604050797f59bd33650263a21e83f6772bfd28e",
+    "commit": "718e1636e5e8686000a273a4373379eb7c25e928",
     "checkout": "deepseek-harness"
   },
   "build": {
