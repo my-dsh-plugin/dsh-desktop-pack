@@ -1,11 +1,34 @@
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "desktop-shell-titlebar",
-  "description": "Desktop-shell chrome: drag-region dragging, window theme mirroring (web page is the theme authority), double-click-to-maximize on the top strip.",
-  "windows": ["main"],
-  "permissions": [
-    "core:window:allow-start-dragging",
-    "core:window:allow-set-theme",
-    "core:window:allow-toggle-maximize"
-  ]
-}
+[
+  {
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "desktop-shell-titlebar",
+    "description": "Desktop-shell chrome on bundled/local pages: drag-region dragging, window theme mirroring (web page is the theme authority), double-click-to-maximize on the top strip.",
+    "windows": [
+      "main"
+    ],
+    "permissions": [
+      "core:window:allow-start-dragging",
+      "core:window:allow-set-theme",
+      "core:window:allow-toggle-maximize"
+    ]
+  },
+  {
+    "identifier": "desktop-shell-titlebar-remote",
+    "description": "Desktop-shell chrome for the remote harness UI (http://127.0.0.1): dragging, double-click-to-maximize and window-theme mirroring. The harness page is a remote origin, so these core:window commands must be granted via a remote capability.",
+    "local": false,
+    "remote": {
+      "urls": [
+        "http://127.0.0.1"
+      ]
+    },
+    "permissions": [
+      "core:window:allow-start-dragging",
+      "core:window:allow-internal-toggle-maximize",
+      "core:window:allow-toggle-maximize",
+      "core:window:allow-set-theme"
+    ],
+    "windows": [
+      "main"
+    ]
+  }
+]

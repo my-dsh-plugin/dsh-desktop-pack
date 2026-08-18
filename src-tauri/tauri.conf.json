@@ -10,13 +10,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "DeepSeek Harness Desktop",
-        "titleBarStyle": "Overlay"
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

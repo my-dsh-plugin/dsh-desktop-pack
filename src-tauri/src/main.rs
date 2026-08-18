@@ -12,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 
 struct ManagerProcess {
@@ -82,9 +82,81 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
 /// plus a Windows-only mirror of the page's resolved theme into the window
 /// theme. The page's own theme stays authoritative: the script only reads
 /// `color-scheme` / `body[data-ds-dark-theme]` and never writes page state.
+///
+/// Dragging & double-click-zoom rely on Tauri's built-in `data-tauri-drag-region`
+/// handling (drag.js), which talks to the shell via `window.__TAURI_INTERNALS__`.
+/// The harness UI is served over http://127.0.0.1 (a remote origin), so the
+/// shell grants those window commands through a remote ACL capability — see
+/// `capabilities/desktop-shell.json` (`desktop-shell-titlebar-remote`).
 fn desktop_chrome_script() -> String {
     include_str!("../chrome/desktop-chrome.js")
         .replace("__DSH_DESKTOP_SYNC_WINDOW_THEME__", if cfg!(target_os = "windows") { "true" } else { "false" })
+}
+
+/// Install a native event monitor that turns clicks in the window's top strip
+/// (the injected chrome strip) into real window dragging.
+///
+/// Why not page->IPC->Rust? The harness UI runs at http://127.0.0.1 (remote
+/// origin); in this app the Tauri IPC bridge does not reach the shell from
+/// remote pages (verified with a diagnostic probe), so no amount of ACL
+/// configuration can carry `start_dragging` from the page. Instead we watch
+/// mouse events natively: when a left-mouse-down lands inside the top 32px of
+/// the window (right of the traffic lights), we hand the REAL event to
+/// `performWindowDragWithEvent:` — the classic AppKit custom-titlebar recipe.
+/// Double-click in that area performs the standard zoom.
+#[cfg(target_os = "macos")]
+fn install_native_strip_drag(window: &tauri::WebviewWindow) {
+    use block2::RcBlock;
+    use objc2::{msg_send, runtime::AnyObject};
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSWindow};
+    use objc2_foundation::{MainThreadMarker, NSInteger, NSRect};
+
+    let Ok(ptr) = window.ns_window() else {
+        eprintln!("[dsh-native] ns_window() failed");
+        return;
+    };
+    unsafe {
+        let _marker = MainThreadMarker::new_unchecked();
+        let ns_window: *mut NSWindow = ptr.cast();
+        let window_number: NSInteger = msg_send![ns_window, windowNumber];
+        let strip_height: f64 = 32.0;
+        // Keep the native traffic lights (left ~72pt) clickable.
+        let left_gutter: f64 = 76.0;
+
+        let block = RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            let ev = event.as_ref();
+            if ev.windowNumber() != window_number {
+                return event.as_ptr();
+            }
+            if ev.r#type() != NSEventType::LeftMouseDown {
+                return event.as_ptr();
+            }
+            let loc = ev.locationInWindow();
+            let frame: NSRect = msg_send![ns_window, frame];
+            if loc.y < frame.size.height - strip_height || loc.x < left_gutter {
+                return event.as_ptr();
+            }
+            if ev.clickCount() >= 2 {
+                let _: () = msg_send![ns_window, performZoom: None::<&AnyObject>];
+            } else {
+                let _: () = msg_send![ns_window, performWindowDragWithEvent: ev];
+            }
+            // Swallow the event so the webview never sees it.
+            std::ptr::null_mut()
+        });
+
+        let monitor = NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+            NSEventMask::LeftMouseDown,
+            &block,
+        );
+        if let Some(monitor) = monitor {
+            // Keep the monitor alive for the lifetime of the app.
+            std::mem::forget(monitor);
+            eprintln!("[dsh-native] strip drag monitor installed (window {window_number})");
+        } else {
+            eprintln!("[dsh-native] failed to install event monitor");
+        }
+    }
 }
 
 fn spawn_manager(paths: &RuntimePaths) -> std::io::Result<Child> {
@@ -143,7 +215,9 @@ fn main() {
                 .min_inner_size(960.0, 640.0)
                 .initialization_script(&desktop_chrome_script());
             #[cfg(target_os = "macos")]
-            let window_builder = window_builder.decorations(true);
+            let window_builder = window_builder
+                .decorations(true)
+                .title_bar_style(TitleBarStyle::Overlay);
             #[cfg(target_os = "windows")]
             let window_builder = window_builder
                 .decorations(false)
@@ -158,6 +232,8 @@ fn main() {
                         && url.port() == port_for_navigation.lock().unwrap().as_ref().copied()
                 })
                 .build()?;
+            #[cfg(target_os = "macos")]
+            install_native_strip_drag(&window);
             let reader_window = window.clone();
 
             let tray_window = window.clone();
