@@ -5,7 +5,7 @@
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
       "ref": "refs/heads/personal-dev",
-      "commit": "66c3b23aff7a065f033e48b514c9118c3140a1f2",
+      "commit": "1ffa8c9b71afc1ed95665f4fc7607820c5670d93",
       "checkout": ".cache/sources/deepseek-harness"
     },
     "modes": {
