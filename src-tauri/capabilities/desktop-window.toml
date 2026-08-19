@@ -1,0 +1,18 @@
+# Grant the main webview access to window operations.
+# These are required by desktop-chrome.js (injected via initialization_script)
+# to handle caption button clicks (minimize / maximize / close) and dragging.
+#
+# The "core:default" permission is needed for dangerousRemoteDomainIpcAccess
+# to inject window.__TAURI__ on the remote 127.0.0.1 page.
+
+[[window]]
+label = "main"
+
+[window.permissions]
+# Core IPC bridge — required for window.__TAURI__ to be available
+"core:default" = { url = "http://127.0.0.1" }
+# Window operations
+"core:window:allow-minimize" = { url = "http://127.0.0.1" }
+"core:window:allow-toggle-maximize" = { url = "http://127.0.0.1" }
+"core:window:allow-close" = { url = "http://127.0.0.1" }
+"core:window:allow-start-dragging" = { url = "http://127.0.0.1" }

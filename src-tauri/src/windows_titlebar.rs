@@ -1,3 +1,15 @@
+//! Windows caption-button safety net.
+//!
+//! Window dragging is handled by the WebView2 runtime via CSS `app-region: drag`
+//! (enabled by wry through `SetIsNonClientRegionSupportEnabled`).  Caption button
+//! clicks are handled by JavaScript in desktop-chrome.js via `window.__TAURI__`.
+//!
+//! This module is a **fallback** that catches `WM_LBUTTONDOWN` / `WM_LBUTTONUP`
+//! in the caption button region and `WM_SIZE` for the maximized/restored icon.
+//! It activates only when the JavaScript IPC path is unavailable; when JS is
+//! working normally the button clicks never reach this proc because the DOM
+//! elements consume them.
+
 use std::mem::size_of;
 
 use tauri::WebviewWindow;
@@ -6,17 +18,12 @@ use windows::Win32::{
     Graphics::Gdi::ScreenToClient,
     UI::{
         HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::{
-            ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TME_NONCLIENT,
-            TRACKMOUSEEVENT,
-        },
+        Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, GetWindow, IsZoomed, PostMessageW, ShowWindow, GW_CHILD, HTCAPTION,
-            HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
-            WM_CAPTURECHANGED, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-            WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
-            WM_SIZE,
+            GetClientRect, IsZoomed, PostMessageW, ShowWindow, HTCAPTION, HTCLOSE, HTMAXBUTTON,
+            HTMINBUTTON, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CAPTURECHANGED, WM_CLOSE,
+            WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCDESTROY, WM_SIZE,
         },
     },
 };
@@ -24,106 +31,51 @@ use windows::Win32::{
 const SUBCLASS_ID: usize = 0x4453_4854; // "DSHT"
 const CAPTION_BUTTON_HEIGHT_DIP: i32 = 32;
 const CAPTION_BUTTON_WIDTH_DIP: i32 = 46;
-const DRAG_STRIP_HEIGHT_DIP: i32 = 12;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum CaptionHit {
     #[default]
     None,
-    Caption,
     Minimize,
     Maximize,
     Close,
 }
 
 impl CaptionHit {
-    fn from_native(value: usize) -> Self {
-        match value as u32 {
-            HTMINBUTTON => Self::Minimize,
-            HTMAXBUTTON => Self::Maximize,
-            HTCLOSE => Self::Close,
-            HTCAPTION => Self::Caption,
-            _ => Self::None,
-        }
-    }
-
-    fn native(self) -> LRESULT {
-        let value = match self {
-            Self::None => HTCLIENT,
-            Self::Caption => HTCAPTION,
-            Self::Minimize => HTMINBUTTON,
-            Self::Maximize => HTMAXBUTTON,
-            Self::Close => HTCLOSE,
-        };
-        LRESULT(value as isize)
-    }
-
     fn is_button(self) -> bool {
         matches!(self, Self::Minimize | Self::Maximize | Self::Close)
     }
-
-    fn dom_name(self) -> &'static str {
-        match self {
-            Self::Minimize => "minimize",
-            Self::Maximize => "maximize",
-            Self::Close => "close",
-            Self::None | Self::Caption => "",
-        }
-    }
 }
 
-struct NativeTitlebarState {
+struct FallbackState {
     window: WebviewWindow,
-    /// The parent/top-level window HWND (used for ShowWindow, PostMessageW,
-    /// IsZoomed).
     window_hwnd: HWND,
-    /// The HWND that actually receives WM_NCHITTEST etc. (the WebView2 child
-    /// when present, otherwise the parent itself).
     subclass_hwnd: HWND,
-    hovered: CaptionHit,
-    pressed: CaptionHit,
+    pressed: Option<CaptionHit>,
     maximized: bool,
 }
 
-impl NativeTitlebarState {
+impl FallbackState {
     fn new(window: WebviewWindow, window_hwnd: HWND, subclass_hwnd: HWND) -> Self {
         Self {
             window,
             window_hwnd,
             subclass_hwnd,
-            hovered: CaptionHit::None,
-            pressed: CaptionHit::None,
+            pressed: None,
             maximized: unsafe { IsZoomed(window_hwnd).as_bool() },
         }
     }
 
-    fn set_pointer_state(&mut self, hovered: CaptionHit, pressed: CaptionHit) {
-        if self.hovered == hovered && self.pressed == pressed {
+    fn sync_maximized(&mut self) {
+        let maximized = unsafe { IsZoomed(self.window_hwnd).as_bool() };
+        if self.maximized == maximized {
             return;
         }
-        self.hovered = hovered;
-        self.pressed = pressed;
-        self.sync_webview();
-    }
-
-    fn refresh_maximized(&mut self) {
-        let maximized = unsafe { IsZoomed(self.window_hwnd).as_bool() };
-        if self.maximized != maximized {
-            self.maximized = maximized;
-            self.sync_webview();
-        }
-    }
-
-    fn sync_webview(&self) {
-        // The injected controller only updates DOM styling; no Tauri API is
-        // exposed to, or invoked by, the remote Harness page.
-        let script = format!(
-            "window.__DSH_DESKTOP_CHROME__?.setNativeState({{hover:{:?},pressed:{:?},maximized:{}}})",
-            self.hovered.dom_name(),
-            self.pressed.dom_name(),
-            self.maximized,
-        );
-        let _ = self.window.eval(script);
+        self.maximized = maximized;
+        let _ = self.window.eval(&format!(
+            "window.__DSH_DESKTOP_CHROME__?.setNativeState({{maximized:{}}})",
+            maximized
+        ));
     }
 }
 
@@ -135,11 +87,6 @@ fn caption_hit_test(x: i32, y: i32, client_width: i32, dpi: u32) -> CaptionHit {
     if x < 0 || x >= client_width || y < 0 {
         return CaptionHit::None;
     }
-
-    // Harness already leaves the first 12 DIP of its top-level surfaces free:
-    // the conversation header starts at y=12 and the sidebar controls start
-    // lower still. Keep only that existing gap draggable so the page can paint
-    // at y=0 without sacrificing its top-row controls.
     let button_height = scale_dip(CAPTION_BUTTON_HEIGHT_DIP, dpi);
     let button_width = scale_dip(CAPTION_BUTTON_WIDTH_DIP, dpi);
     let distance_from_right = client_width - x;
@@ -149,29 +96,17 @@ fn caption_hit_test(x: i32, y: i32, client_width: i32, dpi: u32) -> CaptionHit {
         CaptionHit::Maximize
     } else if y < button_height && distance_from_right <= button_width * 3 {
         CaptionHit::Minimize
-    } else if y < scale_dip(DRAG_STRIP_HEIGHT_DIP, dpi) {
-        CaptionHit::Caption
     } else {
         CaptionHit::None
     }
 }
 
 fn point_from_lparam(lparam: LPARAM) -> POINT {
-    // Mouse coordinates are signed 16-bit values packed into LPARAM. Keeping
-    // the sign matters on multi-monitor layouts with negative coordinates.
     let packed = lparam.0 as u32;
     POINT {
         x: (packed as u16 as i16) as i32,
         y: ((packed >> 16) as u16 as i16) as i32,
     }
-}
-
-unsafe fn hit_test_screen_point(hwnd: HWND, lparam: LPARAM) -> CaptionHit {
-    let mut point = point_from_lparam(lparam);
-    if !unsafe { ScreenToClient(hwnd, &mut point) }.as_bool() {
-        return CaptionHit::None;
-    }
-    unsafe { hit_test_client_point(hwnd, point) }
 }
 
 unsafe fn hit_test_client_point(hwnd: HWND, point: POINT) -> CaptionHit {
@@ -187,18 +122,7 @@ unsafe fn hit_test_client_point(hwnd: HWND, point: POINT) -> CaptionHit {
     )
 }
 
-unsafe fn track_non_client_leave(hwnd: HWND) {
-    let mut event = TRACKMOUSEEVENT {
-        cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-        dwFlags: TME_LEAVE | TME_NONCLIENT,
-        hwndTrack: hwnd,
-        dwHoverTime: 0,
-    };
-    let _ = unsafe { TrackMouseEvent(&mut event) };
-}
-
-unsafe fn run_caption_action(state: &mut NativeTitlebarState, hit: CaptionHit) {
-    let hwnd = state.window_hwnd;
+unsafe fn run_caption_action(hwnd: HWND, hit: CaptionHit) {
     match hit {
         CaptionHit::Minimize => {
             let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
@@ -210,14 +134,11 @@ unsafe fn run_caption_action(state: &mut NativeTitlebarState, hit: CaptionHit) {
                 SW_MAXIMIZE
             };
             let _ = unsafe { ShowWindow(hwnd, command) };
-            state.refresh_maximized();
         }
         CaptionHit::Close => {
-            // WM_CLOSE follows the same CloseRequested path as a native
-            // caption button, so main.rs can keep "close means hide to tray".
             let _ = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
         }
-        CaptionHit::None | CaptionHit::Caption => {}
+        CaptionHit::None => {}
     }
 }
 
@@ -229,124 +150,54 @@ unsafe extern "system" fn titlebar_subclass_proc(
     _subclass_id: usize,
     state_ptr: usize,
 ) -> LRESULT {
-    let state = unsafe { &mut *(state_ptr as *mut NativeTitlebarState) };
+    let state = unsafe { &mut *(state_ptr as *mut FallbackState) };
 
     match message {
-        WM_NCHITTEST => {
-            // Preserve resize borders and any other non-client result already
-            // supplied by Tao/Winit; only promote ordinary client pixels.
-            let default_result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-            if default_result.0 != HTCLIENT as isize {
-                return default_result;
-            }
-            let hit = unsafe { hit_test_screen_point(hwnd, lparam) };
-            if hit == CaptionHit::None {
-                default_result
-            } else {
-                hit.native()
-            }
-        }
-        WM_NCMOUSEMOVE => {
-            let hit = CaptionHit::from_native(wparam.0);
-            state.set_pointer_state(hit, state.pressed);
-            unsafe { track_non_client_leave(hwnd) };
-            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
-        }
-        WM_NCMOUSELEAVE => {
-            state.set_pointer_state(CaptionHit::None, state.pressed);
-            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
-        }
-        WM_NCLBUTTONDOWN => {
-            let hit = CaptionHit::from_native(wparam.0);
-            if hit.is_button() {
-                // Own button tracking so behavior does not depend on a native
-                // caption existing behind this decoration-less window.
-                state.set_pointer_state(hit, hit);
-                let _ = unsafe { SetCapture(hwnd) };
-                LRESULT(0)
-            } else if hit == CaptionHit::Caption {
-                // Standard borderless-window drag trick: release any capture,
-                // then post a synthetic WM_NCLBUTTONDOWN with HTCAPTION to the
-                // actual frame window so DefWindowProc enters its system move
-                // loop.  This works even when the subclass lives on a child
-                // (WebView2) HWND.
-                let _ = unsafe { ReleaseCapture() };
-                let _ = unsafe {
-                    PostMessageW(
-                        Some(state.window_hwnd),
-                        WM_NCLBUTTONDOWN,
-                        WPARAM(HTCAPTION as usize),
-                        LPARAM(0),
-                    )
-                };
-                LRESULT(0)
-            } else {
-                unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
-            }
-        }
-        WM_MOUSEMOVE if state.pressed.is_button() => {
-            let hit = unsafe { hit_test_client_point(hwnd, point_from_lparam(lparam)) };
-            state.set_pointer_state(hit, state.pressed);
-            LRESULT(0)
-        }
+        // --- Fallback button interaction (only fires when JS IPC is unavailable) ---
         WM_LBUTTONDOWN => {
-            // Fallback: if WM_NCHITTEST is swallowed by the WebView2 runtime
-            // and the click lands in the titlebar region, manually promote it
-            // to a caption drag or button action.  This is the safety net for
-            // configurations where the non-client hit-test never reaches us.
             let point = point_from_lparam(lparam);
             let hit = unsafe { hit_test_client_point(hwnd, point) };
-            if hit == CaptionHit::None {
-                return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-            }
-            if hit == CaptionHit::Caption {
-                let _ = unsafe { ReleaseCapture() };
-                let _ = unsafe {
-                    PostMessageW(
-                        Some(state.window_hwnd),
-                        WM_NCLBUTTONDOWN,
-                        WPARAM(HTCAPTION as usize),
-                        LPARAM(0),
-                    )
-                };
-                return LRESULT(0);
-            }
             if hit.is_button() {
-                state.set_pointer_state(hit, hit);
+                state.pressed = Some(hit);
                 let _ = unsafe { SetCapture(hwnd) };
                 return LRESULT(0);
             }
-            LRESULT(0)
+            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
         }
-        WM_LBUTTONUP if state.pressed.is_button() => {
-            let released_over = unsafe { hit_test_client_point(hwnd, point_from_lparam(lparam)) };
-            let pressed = state.pressed;
+        WM_MOUSEMOVE if state.pressed.is_some() => {
+            unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+        }
+        WM_LBUTTONUP if state.pressed.is_some() => {
+            let released_over =
+                unsafe { hit_test_client_point(hwnd, point_from_lparam(lparam)) };
+            let pressed = state.pressed.take().unwrap();
             let _ = unsafe { ReleaseCapture() };
-            state.set_pointer_state(released_over, CaptionHit::None);
             if released_over == pressed {
-                unsafe { run_caption_action(state, pressed) };
+                unsafe { run_caption_action(state.window_hwnd, pressed) };
             }
             LRESULT(0)
         }
-        WM_CAPTURECHANGED if state.pressed.is_button() => {
-            state.set_pointer_state(CaptionHit::None, CaptionHit::None);
+        WM_CAPTURECHANGED if state.pressed.is_some() => {
+            state.pressed = None;
             unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
         }
+
+        // --- Maximized state tracking ---
         WM_SIZE => {
             let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-            state.refresh_maximized();
+            state.sync_maximized();
             result
         }
+
+        // --- Cleanup ---
         WM_NCDESTROY => {
             let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-            let _ = unsafe {
-                RemoveWindowSubclass(hwnd, Some(titlebar_subclass_proc), SUBCLASS_ID)
-            };
-            // SetWindowSubclass holds this allocation for exactly the HWND
-            // lifetime; WM_NCDESTROY is the final safe point to reclaim it.
-            drop(unsafe { Box::from_raw(state_ptr as *mut NativeTitlebarState) });
+            let _ =
+                unsafe { RemoveWindowSubclass(hwnd, Some(titlebar_subclass_proc), SUBCLASS_ID) };
+            drop(unsafe { Box::from_raw(state_ptr as *mut FallbackState) });
             result
         }
+
         _ => unsafe { DefSubclassProc(hwnd, message, wparam, lparam) },
     }
 }
@@ -354,35 +205,14 @@ unsafe extern "system" fn titlebar_subclass_proc(
 pub fn install(window: &WebviewWindow) -> Result<(), String> {
     let parent_hwnd = window.hwnd().map_err(|error| error.to_string())?;
 
-    // Tauri v2 on Windows creates a WebView2 child window that fills the
-    // entire parent client area.  WM_NCHITTEST (and all other mouse messages)
-    // are sent to that child, not the parent.  Subclass the child when one
-    // exists; otherwise fall back to the parent (e.g. windowless composition
-    // mode or a future runtime that does not use a separate child HWND).
-    let subclass_hwnd = match unsafe { GetWindow(parent_hwnd, GW_CHILD) } {
-        Ok(child) if child != HWND::default() => {
-            eprintln!(
-                "[dsh-native] WebView2 child detected (hwnd={child:?}), parent={parent_hwnd:?}"
-            );
-            child
-        }
-        _ => {
-            eprintln!(
-                "[dsh-native] no child window detected, subclassing parent (hwnd={parent_hwnd:?})"
-            );
-            parent_hwnd
-        }
-    };
+    // Always subclass the window that actually receives the messages.
+    let hwnd = parent_hwnd;
 
-    let state = Box::new(NativeTitlebarState::new(
-        window.clone(),
-        parent_hwnd,
-        subclass_hwnd,
-    ));
+    let state = Box::new(FallbackState::new(window.clone(), parent_hwnd, hwnd));
     let state_ptr = Box::into_raw(state);
     let installed = unsafe {
         SetWindowSubclass(
-            subclass_hwnd,
+            hwnd,
             Some(titlebar_subclass_proc),
             SUBCLASS_ID,
             state_ptr as usize,
@@ -390,7 +220,7 @@ pub fn install(window: &WebviewWindow) -> Result<(), String> {
         .as_bool()
     };
     if installed {
-        eprintln!("[dsh-native] Windows titlebar subclass installed on hwnd={subclass_hwnd:?}");
+        eprintln!("[dsh-native] Windows caption fallback subclass installed on hwnd={hwnd:?}");
         Ok(())
     } else {
         drop(unsafe { Box::from_raw(state_ptr) });
@@ -407,24 +237,13 @@ mod tests {
         assert_eq!(caption_hit_test(999, 10, 1000, 96), CaptionHit::Close);
         assert_eq!(caption_hit_test(953, 10, 1000, 96), CaptionHit::Maximize);
         assert_eq!(caption_hit_test(907, 10, 1000, 96), CaptionHit::Minimize);
-        assert_eq!(caption_hit_test(861, 10, 1000, 96), CaptionHit::Caption);
+        assert_eq!(caption_hit_test(861, 10, 1000, 96), CaptionHit::None);
     }
 
     #[test]
-    fn leaves_page_controls_clickable_below_the_drag_strip() {
-        assert_eq!(caption_hit_test(500, 11, 1000, 96), CaptionHit::Caption);
-        assert_eq!(caption_hit_test(500, 12, 1000, 96), CaptionHit::None);
+    fn leaves_page_controls_clickable_below_the_button_area() {
         assert_eq!(caption_hit_test(500, 31, 1000, 96), CaptionHit::None);
-        assert_eq!(caption_hit_test(999, 31, 1000, 96), CaptionHit::Close);
+        assert_eq!(caption_hit_test(500, 32, 1000, 96), CaptionHit::None);
         assert_eq!(caption_hit_test(999, 32, 1000, 96), CaptionHit::None);
-    }
-
-    #[test]
-    fn scales_the_native_hit_regions_with_dpi() {
-        assert_eq!(caption_hit_test(931, 47, 1000, 144), CaptionHit::Close);
-        assert_eq!(caption_hit_test(930, 47, 1000, 144), CaptionHit::Maximize);
-        assert_eq!(caption_hit_test(500, 17, 1000, 144), CaptionHit::Caption);
-        assert_eq!(caption_hit_test(500, 18, 1000, 144), CaptionHit::None);
-        assert_eq!(caption_hit_test(500, 48, 1000, 144), CaptionHit::None);
     }
 }
