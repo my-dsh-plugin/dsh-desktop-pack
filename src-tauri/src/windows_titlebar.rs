@@ -359,14 +359,14 @@ pub fn install(window: &WebviewWindow) -> Result<(), String> {
     // are sent to that child, not the parent.  Subclass the child when one
     // exists; otherwise fall back to the parent (e.g. windowless composition
     // mode or a future runtime that does not use a separate child HWND).
-    let subclass_hwnd = {
-        let child = unsafe { GetWindow(parent_hwnd, GW_CHILD) };
-        if child != HWND::default() {
+    let subclass_hwnd = match unsafe { GetWindow(parent_hwnd, GW_CHILD) } {
+        Ok(child) if child != HWND::default() => {
             eprintln!(
                 "[dsh-native] WebView2 child detected (hwnd={child:?}), parent={parent_hwnd:?}"
             );
             child
-        } else {
+        }
+        _ => {
             eprintln!(
                 "[dsh-native] no child window detected, subclassing parent (hwnd={parent_hwnd:?})"
             );

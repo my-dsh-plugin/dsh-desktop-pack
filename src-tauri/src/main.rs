@@ -12,8 +12,10 @@ use tauri_plugin_dialog::DialogExt;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 
 #[cfg(target_os = "windows")]
 mod windows_titlebar;
