@@ -15,6 +15,9 @@ use tauri::{
     Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 
+#[cfg(target_os = "windows")]
+mod windows_titlebar;
+
 struct ManagerProcess {
     child: Mutex<Option<Child>>,
     stdin: Mutex<Option<ChildStdin>>,
@@ -77,23 +80,14 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
     None
 }
 
-/// Desktop-chrome injection for the main webview: reserves a 32px top strip
-/// and, on Windows only, draws the caption buttons (minimize / maximize-restore
-/// / close) plus a draggable strip (`start_dragging`) and mirrors the page's
-/// resolved theme into the window theme (caption colors). On macOS the native
-/// overlay title bar (TitleBarStyle::Overlay) provides the traffic lights and
-/// an NSEvent monitor provides the strip drag, so the script only reserves the
-/// strip there. The page's own theme stays authoritative: the script only
-/// reads `color-scheme` / `body[data-ds-dark-theme]` and never writes page state.
-///
-/// The Windows caption buttons talk to the shell over `window.__TAURI_INTERNALS__`
-/// (e.g. `plugin:window|minimize`). The harness UI is served over
-/// http://127.0.0.1 (a remote origin), so the shell grants those window commands
-/// through a remote ACL capability — see `capabilities/desktop-shell.json`
-/// (`desktop-shell-titlebar-remote`).
+/// Desktop-chrome injection for the main webview. macOS reserves a 32px strip
+/// for its overlay traffic lights and native drag monitor. Windows draws only
+/// the three caption glyphs over the page; the native HWND subclass owns hit
+/// testing, dragging and button actions, so the remote page receives no Tauri
+/// IPC permission and no longer needs a blank 32px content offset.
 fn desktop_chrome_script() -> String {
     include_str!("../chrome/desktop-chrome.js")
-        .replace("__DSH_DESKTOP_SYNC_WINDOW_THEME__", if cfg!(target_os = "windows") { "true" } else { "false" })
+        .replace("__DSH_DESKTOP_IS_WINDOWS__", if cfg!(target_os = "windows") { "true" } else { "false" })
 }
 
 /// Install a native event monitor that turns clicks in the window's top strip
@@ -237,6 +231,10 @@ fn main() {
                 .build()?;
             #[cfg(target_os = "macos")]
             install_native_strip_drag(&window);
+            #[cfg(target_os = "windows")]
+            if let Err(error) = windows_titlebar::install(&window) {
+                eprintln!("[dsh-native] failed to install Windows titlebar subclass: {error}");
+            }
             let reader_window = window.clone();
 
             let tray_window = window.clone();

@@ -1,43 +1,17 @@
-// Desktop-shell chrome (injected by the Tauri shell into every loaded page).
+// Desktop chrome injected into each page by the Tauri shell.
 //
-// Two platform shapes:
-//   - macOS: native title bar overlay (TitleBarStyle::Overlay) with native
-//     traffic lights. The shell installs an NSEvent monitor that drags the
-//     window from the top 32px (right of the traffic lights); double-click
-//     zooms. This script only reserves that 32px strip so app content clears
-//     the captions.
-//   - Windows: decoration-less borderless window. This script draws the
-//     caption buttons (minimize / maximize-restore / close) into the top-right
-//     of the 32px strip, makes the strip drag the window (start_dragging),
-//     double-click toggles maximize, and mirrors the WEB PAGE's resolved theme
-//     into the window theme (native caption colors) — see below.
-//
-// The page is the theme authority: this script only reads what the page
-// already applied (ui-theme writes `html { color-scheme }` /
-// `body[data-ds-dark-theme]`), it never changes the page, and never lets the
-// OS drive the page back.
-//
-// On Windows the caption buttons talk to the shell over the Tauri IPC bridge
-// (window.__TAURI_INTERNALS__.invoke('plugin:window|...')). The harness UI is
-// served over a remote origin (http://127.0.0.1), so those core:window
-// commands must be permitted for that origin — see
-// `capabilities/desktop-shell.json` (`desktop-shell-titlebar-remote`). If the
-// bridge is unreachable the buttons simply do nothing; they never touch page
-// state.
+// macOS keeps a 32px content inset for the native overlay traffic lights; its
+// drag behavior lives in the AppKit event monitor in main.rs. Windows keeps the
+// page full-height and overlays only visual caption glyphs. An HWND subclass in
+// windows_titlebar.rs owns hit testing, dragging and caption actions, so this
+// remote page never receives Tauri IPC access.
 (() => {
   'use strict'
+
   const TITLEBAR_HEIGHT = 32
   const BUTTON_WIDTH = 46
-  // Replaced at build time by the Rust side: true on Windows, false elsewhere.
-  const SYNC_WINDOW_THEME = __DSH_DESKTOP_SYNC_WINDOW_THEME__
-  const IS_WINDOWS = SYNC_WINDOW_THEME
-
-  function invoke (cmd, args) {
-    if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
-      return window.__TAURI_INTERNALS__.invoke(cmd, args)
-    }
-    return Promise.reject(new Error('Tauri IPC unavailable'))
-  }
+  const CAPTION_CONTROLS_WIDTH = BUTTON_WIDTH * 3
+  const IS_WINDOWS = __DSH_DESKTOP_IS_WINDOWS__
 
   function readTheme () {
     if (document.body && document.body.hasAttribute('data-ds-dark-theme')) return 'dark'
@@ -52,8 +26,7 @@
     svg.setAttribute('fill', 'none')
     svg.setAttribute('stroke', 'currentColor')
     svg.setAttribute('stroke-width', '1')
-    svg.style.display = 'block'
-    svg.style.pointerEvents = 'none'
+    svg.style.cssText = 'display:block;pointer-events:none'
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.setAttribute('d', d)
     path.setAttribute('vector-effect', 'non-scaling-stroke')
@@ -73,124 +46,197 @@
     button.style.cssText = [
       'display:flex', 'align-items:center', 'justify-content:center',
       'width:' + BUTTON_WIDTH + 'px', 'height:' + TITLEBAR_HEIGHT + 'px',
-      'cursor:default', 'user-select:none', '-webkit-user-select:none',
+      'flex:0 0 auto', 'pointer-events:none',
       'color:var(--dsh-caption-fg)', 'background:transparent',
-      'transition:background-color .08s linear, color .08s linear',
+      'transition:background-color .08s linear,color .08s linear',
     ].join(';')
     button.appendChild(icon())
     return button
   }
 
-  function applyCaptionTheme (theme) {
-    const bar = document.querySelector('[data-dsh-caption-bar]')
-    if (!bar) return
-    const dark = theme === 'dark'
-    const set = (name, value) => bar.style.setProperty(name, value)
-    set('--dsh-caption-fg', dark ? '#9aa4b2' : '#5f6368')
-    set('--dsh-caption-hover', dark ? '#ffffff' : '#202124')
-    set('--dsh-caption-hover-bg', dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.08)')
-    set('--dsh-caption-close-bg', '#e81123')
-  }
-
   function installCaptionBar () {
     if (document.querySelector('[data-dsh-caption-bar]')) return
+
     const bar = document.createElement('div')
     bar.setAttribute('data-dsh-caption-bar', '')
     bar.style.cssText = [
-      'position:fixed', 'top:0', 'left:0', 'right:0',
+      'position:fixed', 'top:0', 'right:0',
       'height:' + TITLEBAR_HEIGHT + 'px',
-      'display:flex', 'flex-direction:row', 'justify-content:flex-end', 'align-items:stretch',
-      'z-index:2147483647', 'user-select:none', '-webkit-user-select:none',
+      'display:flex', 'align-items:stretch',
+      'z-index:2147483647', 'pointer-events:none',
+      'user-select:none', '-webkit-user-select:none',
     ].join(';')
 
-    const btnMinimize = captionButton('minimize', '最小化', MINIMIZE_ICON)
-    const btnMaximize = captionButton('maximize', '最大化', MAXIMIZE_ICON)
-    const btnClose = captionButton('close', '关闭', CLOSE_ICON)
-
-    const bindHover = (button) => {
-      button.addEventListener('mouseenter', () => {
-        button.style.background = button === btnClose
-          ? 'var(--dsh-caption-close-bg)'
-          : 'var(--dsh-caption-hover-bg)'
-        button.style.color = button === btnClose ? '#ffffff' : 'var(--dsh-caption-hover)'
-      })
-      button.addEventListener('mouseleave', () => {
-        button.style.background = 'transparent'
-        button.style.color = 'var(--dsh-caption-fg)'
-      })
+    const buttons = {
+      minimize: captionButton('minimize', '最小化', MINIMIZE_ICON),
+      maximize: captionButton('maximize', '最大化', MAXIMIZE_ICON),
+      close: captionButton('close', '关闭', CLOSE_ICON),
     }
-    bindHover(btnMinimize)
-    bindHover(btnMaximize)
-    bindHover(btnClose)
-
-    btnMinimize.addEventListener('click', () => { invoke('plugin:window|minimize').catch(() => {}) })
-    btnMaximize.addEventListener('click', () => { invoke('plugin:window|toggle_maximize').catch(() => {}) })
-    btnClose.addEventListener('click', () => { invoke('plugin:window|close').catch(() => {}) })
-
-    // Drag from the strip (outside the buttons) and double-click to maximize.
-    bar.addEventListener('mousedown', (event) => {
-      if (event.button !== 0) return
-      if (event.target.closest && event.target.closest('[data-dsh-caption-btn]')) return
-      event.preventDefault()
-      invoke('plugin:window|start_dragging').catch(() => {})
-    })
-    bar.addEventListener('dblclick', (event) => {
-      if (event.target.closest && event.target.closest('[data-dsh-caption-btn]')) return
-      invoke('plugin:window|toggle_maximize').catch(() => {})
-    })
-
-    bar.appendChild(btnMinimize)
-    bar.appendChild(btnMaximize)
-    bar.appendChild(btnClose)
+    bar.append(buttons.minimize, buttons.maximize, buttons.close)
     document.documentElement.appendChild(bar)
 
-    // Maximize/restore glyph follows the real window state.
-    let maxState = null
-    const refreshMaxState = () => {
-      invoke('plugin:window|is_maximized').then((maximized) => {
-        if (maximized === maxState) return
-        maxState = maximized
-        btnMaximize.title = maximized ? '还原' : '最大化'
-        btnMaximize.replaceChildren(maximized ? RESTORE_ICON() : MAXIMIZE_ICON())
-      }).catch(() => {})
+    const insetStyle = document.createElement('style')
+    insetStyle.setAttribute('data-dsh-caption-inset-style', '')
+    insetStyle.textContent = `
+      [data-dsh-caption-inset] {
+        box-sizing: border-box !important;
+        padding-right: calc(var(--dsh-caption-base-padding-right) + ${CAPTION_CONTROLS_WIDTH}px) !important;
+      }
+      [data-dsh-caption-shift] {
+        translate: -${CAPTION_CONTROLS_WIDTH}px 0 !important;
+      }
+    `
+    document.documentElement.appendChild(insetStyle)
+
+    let insetContainers = []
+    let shiftedControls = []
+    function reserveCaptionSpace () {
+      // Remove our previous layout effect before measuring the page's current
+      // geometry. This keeps repeated mutations and resizes from compounding
+      // the inset while panels open, close, or change width.
+      for (const element of insetContainers) {
+        element.removeAttribute('data-dsh-caption-inset')
+        element.style.removeProperty('--dsh-caption-base-padding-right')
+      }
+      for (const element of shiftedControls) element.removeAttribute('data-dsh-caption-shift')
+      insetContainers = []
+      shiftedControls = []
+
+      const captionLeft = window.innerWidth - CAPTION_CONTROLS_WIDTH
+      const targets = new Set()
+      const intersectsCaption = (rect) => rect.width > 0 && rect.height > 0 &&
+        rect.top < TITLEBAR_HEIGHT && rect.bottom > 0 &&
+        rect.left < window.innerWidth && rect.right > captionLeft
+
+      // The conversation chrome is semantic <header>; reserving only its
+      // right edge keeps the page at y=0 and moves its utilities out from
+      // beneath the native caption controls.
+      for (const header of document.querySelectorAll('header')) {
+        if (intersectsCaption(header.getBoundingClientRect())) targets.add(header)
+      }
+
+      // Some top-level panels use a flex <div> header. Locate the compact row
+      // that owns any button under the caption rectangle instead of relying on
+      // CSS-module class names from one Harness build.
+      for (const button of document.querySelectorAll('button')) {
+        if (!intersectsCaption(button.getBoundingClientRect())) continue
+        let candidate = button.parentElement
+        while (candidate && candidate !== document.body) {
+          const rect = candidate.getBoundingClientRect()
+          const display = getComputedStyle(candidate).display
+          if (rect.right >= window.innerWidth - 1 && rect.top < TITLEBAR_HEIGHT &&
+              rect.height <= TITLEBAR_HEIGHT * 3 && (display === 'flex' || display === 'grid')) {
+            targets.add(candidate)
+            break
+          }
+          candidate = candidate.parentElement
+        }
+        // Fixed lightbox/dialog controls may not have a compact header row.
+        // Shift just that control while leaving its full-screen parent alone.
+        if (!candidate || candidate === document.body) {
+          const position = getComputedStyle(button).position
+          if (position === 'fixed' || position === 'absolute') {
+            button.setAttribute('data-dsh-caption-shift', '')
+            shiftedControls.push(button)
+          }
+        }
+      }
+
+      for (const element of targets) {
+        element.style.setProperty('--dsh-caption-base-padding-right', getComputedStyle(element).paddingRight)
+        element.setAttribute('data-dsh-caption-inset', '')
+        insetContainers.push(element)
+      }
     }
-    window.addEventListener('resize', refreshMaxState)
-    document.addEventListener('visibilitychange', refreshMaxState)
-    refreshMaxState()
-  }
 
-  function mount () {
-    // Reserve the top strip (overlay traffic lights on macOS / caption buttons
-    // on Windows) so the app's own 100%-height boxes stay below the captions.
-    const html = document.documentElement
-    html.style.boxSizing = 'border-box'
-    html.style.height = '100%'
-    html.style.paddingTop = TITLEBAR_HEIGHT + 'px'
-    if (document.body) document.body.style.boxSizing = 'border-box'
+    let layoutFrame = null
+    const syncLayout = () => {
+      if (layoutFrame !== null) return
+      layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = null
+        reserveCaptionSpace()
+      })
+    }
+    const layoutObserver = new MutationObserver(syncLayout)
+    if (document.body) layoutObserver.observe(document.body, { childList: true, subtree: true })
+    window.addEventListener('resize', syncLayout)
 
-    if (IS_WINDOWS) {
-      installCaptionBar()
-      applyCaptionTheme(readTheme())
+    const state = { hover: '', pressed: '', maximized: false }
+
+    function applyTheme () {
+      const dark = readTheme() === 'dark'
+      bar.style.setProperty('--dsh-caption-fg', dark ? '#9aa4b2' : '#5f6368')
+      bar.style.setProperty('--dsh-caption-hover', dark ? '#ffffff' : '#202124')
+      bar.style.setProperty('--dsh-caption-hover-bg', dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.08)')
+      bar.style.setProperty('--dsh-caption-pressed-bg', dark ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.14)')
     }
 
-    if (!SYNC_WINDOW_THEME) return
-
-    const sync = () => {
-      applyCaptionTheme(readTheme())
-      invoke('plugin:window|set_theme', { theme: readTheme() }).catch(() => {})
+    function applyNativeState () {
+      for (const [kind, button] of Object.entries(buttons)) {
+        const hovered = state.hover === kind
+        const pressed = state.pressed === kind && hovered
+        button.style.background = pressed
+          ? (kind === 'close' ? '#c50f1f' : 'var(--dsh-caption-pressed-bg)')
+          : hovered
+            ? (kind === 'close' ? '#e81123' : 'var(--dsh-caption-hover-bg)')
+            : 'transparent'
+        button.style.color = hovered ? (kind === 'close' ? '#ffffff' : 'var(--dsh-caption-hover)') : 'var(--dsh-caption-fg)'
+      }
+      buttons.maximize.title = state.maximized ? '还原' : '最大化'
+      buttons.maximize.replaceChildren(state.maximized ? RESTORE_ICON() : MAXIMIZE_ICON())
     }
+
+    // Rust calls this narrow visual bridge with fixed values. It is not an IPC
+    // surface: the page can style the injected nodes but cannot command the OS.
+    window.__DSH_DESKTOP_CHROME__ = {
+      setNativeState (next) {
+        state.hover = next.hover || ''
+        state.pressed = next.pressed || ''
+        state.maximized = next.maximized === true
+        applyNativeState()
+      },
+    }
+
     let pending = null
-    const observer = new MutationObserver(() => {
+    const syncTheme = () => {
       if (pending !== null) return
-      pending = setTimeout(() => { pending = null; sync() }, 50)
-    })
+      pending = setTimeout(() => {
+        pending = null
+        applyTheme()
+        applyNativeState()
+      }, 50)
+    }
+    const observer = new MutationObserver(syncTheme)
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['style', 'class', 'data-ds-dark-theme'],
-      childList: true,
     })
-    window.addEventListener('load', sync)
-    sync()
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['style', 'class', 'data-ds-dark-theme'],
+      })
+    }
+    applyTheme()
+    applyNativeState()
+    syncLayout()
+  }
+
+  function mount () {
+    const html = document.documentElement
+    html.style.boxSizing = 'border-box'
+    html.style.height = '100%'
+    if (document.body) document.body.style.boxSizing = 'border-box'
+
+    if (IS_WINDOWS) {
+      // Keep the Harness layout at the real viewport origin. The caption
+      // controls float over its existing top surface instead of creating a
+      // separate, theme-colored blank strip.
+      html.style.paddingTop = '0'
+      installCaptionBar()
+    } else {
+      html.style.paddingTop = TITLEBAR_HEIGHT + 'px'
+    }
   }
 
   if (document.readyState === 'loading') {
