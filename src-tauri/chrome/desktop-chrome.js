@@ -1,12 +1,18 @@
 // Desktop chrome injected into each page by the Tauri shell.
 //
-// macOS uses a 32px content inset for the native overlay traffic lights; its
+// ── macOS ──────────────────────────────────────────────────────────────
+// Uses a 32px content inset for the native overlay traffic lights; its
 // drag behavior lives in the AppKit event monitor in main.rs.
 //
-// Windows uses wry's built-in CSS `app-region: drag` support (enabled via
-// WebView2 SetIsNonClientRegionSupportEnabled) for window dragging, and
-// JavaScript IPC (`window.__TAURI__` or `window.ipc.postMessage`) for
-// caption button actions (minimize / maximize / close).
+// ── Windows ────────────────────────────────────────────────────────────
+// wry calls SetIsNonClientRegionSupportEnabled(true) during WebView2
+// startup, so the CSS property `app-region: drag` makes the top 12 DIP
+// a native window drag handle with zero Rust involvement.
+//
+// Caption button clicks and hover tracking are handled by the HWND
+// subclass in windows_titlebar.rs which owns hit testing, capture, and
+// caption actions.  The JS side only paints DOM glyphs and applies the
+// hover/pressed/maximized styles that the subclass sends via eval().
 (() => {
   'use strict'
 
@@ -41,124 +47,59 @@
   const RESTORE_ICON = () => glyph('M3 3 H7 V7 H3 Z M7 3 H8.5 V8.5 H3 V7')
   const CLOSE_ICON = () => glyph('M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5')
 
-  // ---------------------------------------------------------------------------
-  // Native window actions via Tauri IPC
-  // ---------------------------------------------------------------------------
-
-  function postNative (message) {
-    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-      switch (message) {
-        case 'dsh:minimize':
-          window.__TAURI__.core.invoke('plugin:window|minimize').catch(() => {})
-          break
-        case 'dsh:toggle_maximize':
-          window.__TAURI__.core.invoke('plugin:window|toggle_maximize').catch(() => {})
-          break
-        case 'dsh:close':
-          window.__TAURI__.core.invoke('plugin:window|close').catch(() => {})
-          break
-        case 'dsh:drag_window':
-          window.__TAURI__.core.invoke('plugin:window|start_dragging').catch(() => {})
-          break
-      }
-    }
+  function captionButton (kind, title, icon) {
+    const button = document.createElement('div')
+    button.setAttribute('data-dsh-caption-btn', kind)
+    button.title = title
+    button.style.cssText = [
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'width:' + BUTTON_WIDTH + 'px', 'height:' + TITLEBAR_HEIGHT + 'px',
+      'flex:0 0 auto', 'pointer-events:none',
+      'color:var(--dsh-caption-fg)', 'background:transparent',
+      'transition:background-color .08s linear,color .08s linear',
+    ].join(';')
+    button.appendChild(icon())
+    return button
   }
-
-  // ---------------------------------------------------------------------------
-  // Caption bar DOM
-  // ---------------------------------------------------------------------------
 
   function installCaptionBar () {
     if (document.querySelector('[data-dsh-caption-bar]')) return
 
-    // ── Drag strip (top 12 DIP) ──────────────────────────────────────────
-    //
-    // wry enables `SetIsNonClientRegionSupportEnabled(true)` during WebView2
-    // startup, so the CSS property `-webkit-app-region: drag` / `app-region: drag`
-    // makes this area a native window drag handle without any Rust subclass.
+    // ── Drag strip (top 12 DIP) ──────────────────────────────────────
+    // wry's SetIsNonClientRegionSupportEnabled makes this CSS property
+    // a native window drag handle.  The HWND subclass in
+    // windows_titlebar.rs is NOT involved in dragging.
     const dragStrip = document.createElement('div')
     dragStrip.setAttribute('data-dsh-drag-strip', '')
     dragStrip.style.cssText = [
       'position:fixed', 'top:0', 'left:0', 'right:0',
-      'height:12px', 'z-index:2147483646',
+      'height:12px', 'z-index:2147483645',
       '-webkit-app-region:drag', 'app-region:drag',
-      'background:transparent', 'user-select:none',
+      'background:transparent',
+      'user-select:none', '-webkit-user-select:none',
     ].join(';')
     document.documentElement.appendChild(dragStrip)
 
-    // ── Caption button bar ───────────────────────────────────────────────
-    //
-    // Placed ABOVE the drag strip (higher z-index) with `app-region: no-drag`
-    // so the buttons are excluded from the drag region.
+    // ── Caption button bar (visual only) ─────────────────────────────
     const bar = document.createElement('div')
     bar.setAttribute('data-dsh-caption-bar', '')
     bar.style.cssText = [
       'position:fixed', 'top:0', 'right:0',
       'height:' + TITLEBAR_HEIGHT + 'px',
       'display:flex', 'align-items:stretch',
-      'z-index:2147483647',
-      '-webkit-app-region:no-drag', 'app-region:no-drag',
+      'z-index:2147483647', 'pointer-events:none',
       'user-select:none', '-webkit-user-select:none',
     ].join(';')
 
-    function makeButton (kind, title, icon) {
-      const button = document.createElement('div')
-      button.setAttribute('data-dsh-caption-btn', kind)
-      button.title = title
-      button.style.cssText = [
-        'display:flex', 'align-items:center', 'justify-content:center',
-        'width:' + BUTTON_WIDTH + 'px', 'height:' + TITLEBAR_HEIGHT + 'px',
-        'flex:0 0 auto', 'cursor:default',
-        'color:var(--dsh-caption-fg)', 'background:transparent',
-        'transition:background-color .08s linear,color .08s linear',
-      ].join(';')
-
-      // Hover / pressed visual state — fully self-contained, no Rust IPC needed.
-      button.addEventListener('mouseenter', () => {
-        currentHover = kind
-        applyVisualState()
-      })
-      button.addEventListener('mouseleave', () => {
-        if (currentHover === kind) currentHover = null
-        applyVisualState()
-      })
-      button.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return
-        currentPressed = kind
-        applyVisualState()
-      })
-      button.addEventListener('mouseup', () => {
-        const pressed = currentPressed
-        currentPressed = null
-        applyVisualState()
-        if (pressed !== kind) return
-        // Fire the native action.
-        switch (kind) {
-          case 'minimize': return postNative('dsh:minimize')
-          case 'maximize': return postNative('dsh:toggle_maximize')
-          case 'close': return postNative('dsh:close')
-        }
-      })
-      button.appendChild(icon())
-      return button
-    }
-
-    let currentHover = null
-    let currentPressed = null
-
     const buttons = {
-      minimize: makeButton('minimize', '最小化', MINIMIZE_ICON),
-      maximize: makeButton('maximize', '最大化', MAXIMIZE_ICON),
-      close: makeButton('close', '关闭', CLOSE_ICON),
+      minimize: captionButton('minimize', '最小化', MINIMIZE_ICON),
+      maximize: captionButton('maximize', '最大化', MAXIMIZE_ICON),
+      close: captionButton('close', '关闭', CLOSE_ICON),
     }
-
     bar.append(buttons.minimize, buttons.maximize, buttons.close)
     document.documentElement.appendChild(bar)
 
-    // ── Layout protection ─────────────────────────────────────────────────
-    //
-    // Prevent Harness header controls from hiding under the caption buttons.
-
+    // ── Layout protection ────────────────────────────────────────────
     const insetStyle = document.createElement('style')
     insetStyle.setAttribute('data-dsh-caption-inset-style', '')
     insetStyle.textContent = `
@@ -175,11 +116,11 @@
     let insetContainers = []
     let shiftedControls = []
     function reserveCaptionSpace () {
-      for (const el of insetContainers) {
-        el.removeAttribute('data-dsh-caption-inset')
-        el.style.removeProperty('--dsh-caption-base-padding-right')
+      for (const element of insetContainers) {
+        element.removeAttribute('data-dsh-caption-inset')
+        element.style.removeProperty('--dsh-caption-base-padding-right')
       }
-      for (const el of shiftedControls) el.removeAttribute('data-dsh-caption-shift')
+      for (const element of shiftedControls) element.removeAttribute('data-dsh-caption-shift')
       insetContainers = []
       shiftedControls = []
 
@@ -213,10 +154,10 @@
           }
         }
       }
-      for (const el of targets) {
-        el.style.setProperty('--dsh-caption-base-padding-right', getComputedStyle(el).paddingRight)
-        el.setAttribute('data-dsh-caption-inset', '')
-        insetContainers.push(el)
+      for (const element of targets) {
+        element.style.setProperty('--dsh-caption-base-padding-right', getComputedStyle(element).paddingRight)
+        element.setAttribute('data-dsh-caption-inset', '')
+        insetContainers.push(element)
       }
     }
 
@@ -232,7 +173,8 @@
     if (document.body) layoutObserver.observe(document.body, { childList: true, subtree: true })
     window.addEventListener('resize', syncLayout)
 
-    // ── Theme & state ─────────────────────────────────────────────────────
+    // ── Theme & state (driven by Rust via setNativeState) ────────────
+    const state = { hover: '', pressed: '', maximized: false }
 
     function applyTheme () {
       const dark = readTheme() === 'dark'
@@ -242,10 +184,10 @@
       bar.style.setProperty('--dsh-caption-pressed-bg', dark ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.14)')
     }
 
-    function applyVisualState () {
+    function applyNativeState () {
       for (const [kind, button] of Object.entries(buttons)) {
-        const hovered = currentHover === kind
-        const pressed = currentPressed === kind && hovered
+        const hovered = state.hover === kind
+        const pressed = state.pressed === kind && hovered
         button.style.background = pressed
           ? (kind === 'close' ? '#c50f1f' : 'var(--dsh-caption-pressed-bg)')
           : hovered
@@ -253,39 +195,43 @@
             : 'transparent'
         button.style.color = hovered ? (kind === 'close' ? '#ffffff' : 'var(--dsh-caption-hover)') : 'var(--dsh-caption-fg)'
       }
+      buttons.maximize.title = state.maximized ? '还原' : '最大化'
+      buttons.maximize.replaceChildren(state.maximized ? RESTORE_ICON() : MAXIMIZE_ICON())
     }
 
-    // Rust can still update the maximize icon via this bridge.
+    // Rust calls this narrow visual bridge.  It is not an IPC surface:
+    // the page can style the injected nodes but cannot command the OS.
     window.__DSH_DESKTOP_CHROME__ = {
       setNativeState (next) {
-        const maximized = next.maximized === true
-        buttons.maximize.title = maximized ? '还原' : '最大化'
-        buttons.maximize.replaceChildren(maximized ? RESTORE_ICON() : MAXIMIZE_ICON())
+        state.hover = next.hover || ''
+        state.pressed = next.pressed || ''
+        state.maximized = next.maximized === true
+        applyNativeState()
       },
     }
 
-    let pendingTheme = null
+    let pending = null
     const syncTheme = () => {
-      if (pendingTheme !== null) return
-      pendingTheme = setTimeout(() => {
-        pendingTheme = null
+      if (pending !== null) return
+      pending = setTimeout(() => {
+        pending = null
         applyTheme()
-        applyVisualState()
+        applyNativeState()
       }, 50)
     }
-    const themeObserver = new MutationObserver(syncTheme)
-    themeObserver.observe(document.documentElement, {
+    const observer = new MutationObserver(syncTheme)
+    observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['style', 'class', 'data-ds-dark-theme'],
     })
     if (document.body) {
-      themeObserver.observe(document.body, {
+      observer.observe(document.body, {
         attributes: true,
         attributeFilter: ['style', 'class', 'data-ds-dark-theme'],
       })
     }
     applyTheme()
-    applyVisualState()
+    applyNativeState()
     syncLayout()
   }
 
