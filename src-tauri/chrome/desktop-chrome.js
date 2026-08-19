@@ -5,14 +5,9 @@
 // drag behavior lives in the AppKit event monitor in main.rs.
 //
 // ── Windows ────────────────────────────────────────────────────────────
-// wry calls SetIsNonClientRegionSupportEnabled(true) during WebView2
-// startup, so the CSS property `app-region: drag` makes the top 12 DIP
-// a native window drag handle with zero Rust involvement.
-//
-// Caption button clicks and hover tracking are handled by the HWND
-// subclass in windows_titlebar.rs which owns hit testing, capture, and
-// caption actions.  The JS side only paints DOM glyphs and applies the
-// hover/pressed/maximized styles that the subclass sends via eval().
+// Caption buttons and the top 12-DIP drag strip are handled by the transparent
+// same-process overlay in windows_titlebar.rs. The JS side only paints glyphs
+// and applies the hover/pressed/maximized styles sent by Rust via eval().
 (() => {
   'use strict'
 
@@ -64,21 +59,6 @@
 
   function installCaptionBar () {
     if (document.querySelector('[data-dsh-caption-bar]')) return
-
-    // ── Drag strip (top 12 DIP) ──────────────────────────────────────
-    // wry's SetIsNonClientRegionSupportEnabled makes this CSS property
-    // a native window drag handle.  The HWND subclass in
-    // windows_titlebar.rs is NOT involved in dragging.
-    const dragStrip = document.createElement('div')
-    dragStrip.setAttribute('data-dsh-drag-strip', '')
-    dragStrip.style.cssText = [
-      'position:fixed', 'top:0', 'left:0', 'right:0',
-      'height:12px', 'z-index:2147483645',
-      '-webkit-app-region:drag', 'app-region:drag',
-      'background:transparent',
-      'user-select:none', '-webkit-user-select:none',
-    ].join(';')
-    document.documentElement.appendChild(dragStrip)
 
     // ── Caption button bar (visual only) ─────────────────────────────
     const bar = document.createElement('div')

@@ -8,14 +8,14 @@ use std::{
 };
 
 use serde_json::Value;
-use tauri_plugin_dialog::DialogExt;
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
-#[cfg(target_os = "macos")]
-use tauri::TitleBarStyle;
+use tauri_plugin_dialog::DialogExt;
 
 #[cfg(target_os = "windows")]
 mod windows_titlebar;
@@ -53,7 +53,11 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
                 node: if cfg!(target_os = "windows") {
                     ancestor.join("runtime").join("node").join("node.exe")
                 } else {
-                    ancestor.join("runtime").join("node").join("bin").join("node")
+                    ancestor
+                        .join("runtime")
+                        .join("node")
+                        .join("bin")
+                        .join("node")
                 },
                 manager,
                 data_home: None,
@@ -63,7 +67,9 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
 
     #[cfg(target_os = "macos")]
     {
-        let app_bundle = exe.ancestors().find(|path| path.extension().is_some_and(|ext| ext == "app"))?;
+        let app_bundle = exe
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|ext| ext == "app"))?;
         let resources = app_bundle.join("Contents").join("Resources");
         let home = env::var("HOME").ok()?;
         let data_home = PathBuf::from(home)
@@ -72,7 +78,11 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
             .join("dsh-desktop")
             .join("dsh-home");
         return Some(RuntimePaths {
-            node: resources.join("runtime").join("node").join("bin").join("node"),
+            node: resources
+                .join("runtime")
+                .join("node")
+                .join("bin")
+                .join("node"),
             manager: resources.join("runtime").join("app").join("manager.mjs"),
             data_home: Some(data_home),
         });
@@ -84,12 +94,18 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
 
 /// Desktop-chrome injection for the main webview. macOS reserves a 32px strip
 /// for its overlay traffic lights and native drag monitor. Windows draws only
-/// the three caption glyphs over the page; the native HWND subclass owns hit
-/// testing, dragging and button actions, so the remote page receives no Tauri
-/// IPC permission and no longer needs a blank 32px content offset.
+/// the three caption glyphs over the page; a same-process native overlay owns
+/// hit testing, dragging and button actions, so the remote page receives no
+/// Tauri IPC permission and needs no blank 32px content offset.
 fn desktop_chrome_script() -> String {
-    include_str!("../chrome/desktop-chrome.js")
-        .replace("__DSH_DESKTOP_IS_WINDOWS__", if cfg!(target_os = "windows") { "true" } else { "false" })
+    include_str!("../chrome/desktop-chrome.js").replace(
+        "__DSH_DESKTOP_IS_WINDOWS__",
+        if cfg!(target_os = "windows") {
+            "true"
+        } else {
+            "false"
+        },
+    )
 }
 
 /// Install a native event monitor that turns clicks in the window's top strip
@@ -180,7 +196,8 @@ fn spawn_manager(paths: &RuntimePaths) -> std::io::Result<Child> {
 }
 
 fn main() {
-    let paths = resolve_runtime_paths().expect("cannot resolve manager runtime; set DSH_DESKTOP_ROOT");
+    let paths =
+        resolve_runtime_paths().expect("cannot resolve manager runtime; set DSH_DESKTOP_ROOT");
     eprintln!("[shell] manager: {}", paths.manager.display());
 
     tauri::Builder::default()
@@ -235,7 +252,7 @@ fn main() {
             install_native_strip_drag(&window);
             #[cfg(target_os = "windows")]
             if let Err(error) = windows_titlebar::install(&window) {
-                eprintln!("[dsh-native] failed to install Windows titlebar subclass: {error}");
+                eprintln!("[dsh-native] failed to install Windows titlebar overlay: {error}");
             }
             let reader_window = window.clone();
 
