@@ -12,10 +12,11 @@ use windows::Win32::{
         },
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, IsZoomed, PostMessageW, ShowWindow, HTCAPTION, HTCLIENT, HTCLOSE,
-            HTMAXBUTTON, HTMINBUTTON, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CAPTURECHANGED,
-            WM_CLOSE, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDOWN,
-            WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_SIZE,
+            GetClientRect, GetWindow, IsZoomed, PostMessageW, ShowWindow, GW_CHILD, HTCAPTION,
+            HTCLIENT, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+            WM_CAPTURECHANGED, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+            WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
+            WM_SIZE,
         },
     },
 };
@@ -73,20 +74,26 @@ impl CaptionHit {
 
 struct NativeTitlebarState {
     window: WebviewWindow,
-    hwnd: HWND,
+    /// The parent/top-level window HWND (used for ShowWindow, PostMessageW,
+    /// IsZoomed).
+    window_hwnd: HWND,
+    /// The HWND that actually receives WM_NCHITTEST etc. (the WebView2 child
+    /// when present, otherwise the parent itself).
+    subclass_hwnd: HWND,
     hovered: CaptionHit,
     pressed: CaptionHit,
     maximized: bool,
 }
 
 impl NativeTitlebarState {
-    fn new(window: WebviewWindow, hwnd: HWND) -> Self {
+    fn new(window: WebviewWindow, window_hwnd: HWND, subclass_hwnd: HWND) -> Self {
         Self {
             window,
-            hwnd,
+            window_hwnd,
+            subclass_hwnd,
             hovered: CaptionHit::None,
             pressed: CaptionHit::None,
-            maximized: unsafe { IsZoomed(hwnd).as_bool() },
+            maximized: unsafe { IsZoomed(window_hwnd).as_bool() },
         }
     }
 
@@ -100,7 +107,7 @@ impl NativeTitlebarState {
     }
 
     fn refresh_maximized(&mut self) {
-        let maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
+        let maximized = unsafe { IsZoomed(self.window_hwnd).as_bool() };
         if self.maximized != maximized {
             self.maximized = maximized;
             self.sync_webview();
@@ -191,23 +198,24 @@ unsafe fn track_non_client_leave(hwnd: HWND) {
 }
 
 unsafe fn run_caption_action(state: &mut NativeTitlebarState, hit: CaptionHit) {
+    let hwnd = state.window_hwnd;
     match hit {
         CaptionHit::Minimize => {
-            let _ = unsafe { ShowWindow(state.hwnd, SW_MINIMIZE) };
+            let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
         }
         CaptionHit::Maximize => {
-            let command = if unsafe { IsZoomed(state.hwnd).as_bool() } {
+            let command = if unsafe { IsZoomed(hwnd).as_bool() } {
                 SW_RESTORE
             } else {
                 SW_MAXIMIZE
             };
-            let _ = unsafe { ShowWindow(state.hwnd, command) };
+            let _ = unsafe { ShowWindow(hwnd, command) };
             state.refresh_maximized();
         }
         CaptionHit::Close => {
             // WM_CLOSE follows the same CloseRequested path as a native
             // caption button, so main.rs can keep "close means hide to tray".
-            let _ = unsafe { PostMessageW(Some(state.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            let _ = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
         }
         CaptionHit::None | CaptionHit::Caption => {}
     }
@@ -256,15 +264,58 @@ unsafe extern "system" fn titlebar_subclass_proc(
                 state.set_pointer_state(hit, hit);
                 let _ = unsafe { SetCapture(hwnd) };
                 LRESULT(0)
+            } else if hit == CaptionHit::Caption {
+                // Standard borderless-window drag trick: release any capture,
+                // then post a synthetic WM_NCLBUTTONDOWN with HTCAPTION to the
+                // actual frame window so DefWindowProc enters its system move
+                // loop.  This works even when the subclass lives on a child
+                // (WebView2) HWND.
+                let _ = unsafe { ReleaseCapture() };
+                let _ = unsafe {
+                    PostMessageW(
+                        Some(state.window_hwnd),
+                        WM_NCLBUTTONDOWN,
+                        WPARAM(HTCAPTION as usize),
+                        LPARAM(0),
+                    )
+                };
+                LRESULT(0)
             } else {
-                // HTCAPTION is deliberately delegated: DefWindowProc performs
-                // the system move loop and standard double-click maximize.
                 unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
             }
         }
         WM_MOUSEMOVE if state.pressed.is_button() => {
             let hit = unsafe { hit_test_client_point(hwnd, point_from_lparam(lparam)) };
             state.set_pointer_state(hit, state.pressed);
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            // Fallback: if WM_NCHITTEST is swallowed by the WebView2 runtime
+            // and the click lands in the titlebar region, manually promote it
+            // to a caption drag or button action.  This is the safety net for
+            // configurations where the non-client hit-test never reaches us.
+            let point = point_from_lparam(lparam);
+            let hit = unsafe { hit_test_client_point(hwnd, point) };
+            if hit == CaptionHit::None {
+                return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+            }
+            if hit == CaptionHit::Caption {
+                let _ = unsafe { ReleaseCapture() };
+                let _ = unsafe {
+                    PostMessageW(
+                        Some(state.window_hwnd),
+                        WM_NCLBUTTONDOWN,
+                        WPARAM(HTCAPTION as usize),
+                        LPARAM(0),
+                    )
+                };
+                return LRESULT(0);
+            }
+            if hit.is_button() {
+                state.set_pointer_state(hit, hit);
+                let _ = unsafe { SetCapture(hwnd) };
+                return LRESULT(0);
+            }
             LRESULT(0)
         }
         WM_LBUTTONUP if state.pressed.is_button() => {
@@ -301,12 +352,37 @@ unsafe extern "system" fn titlebar_subclass_proc(
 }
 
 pub fn install(window: &WebviewWindow) -> Result<(), String> {
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
-    let state = Box::new(NativeTitlebarState::new(window.clone(), hwnd));
+    let parent_hwnd = window.hwnd().map_err(|error| error.to_string())?;
+
+    // Tauri v2 on Windows creates a WebView2 child window that fills the
+    // entire parent client area.  WM_NCHITTEST (and all other mouse messages)
+    // are sent to that child, not the parent.  Subclass the child when one
+    // exists; otherwise fall back to the parent (e.g. windowless composition
+    // mode or a future runtime that does not use a separate child HWND).
+    let subclass_hwnd = {
+        let child = unsafe { GetWindow(parent_hwnd, GW_CHILD) };
+        if child != HWND::default() {
+            eprintln!(
+                "[dsh-native] WebView2 child detected (hwnd={child:?}), parent={parent_hwnd:?}"
+            );
+            child
+        } else {
+            eprintln!(
+                "[dsh-native] no child window detected, subclassing parent (hwnd={parent_hwnd:?})"
+            );
+            parent_hwnd
+        }
+    };
+
+    let state = Box::new(NativeTitlebarState::new(
+        window.clone(),
+        parent_hwnd,
+        subclass_hwnd,
+    ));
     let state_ptr = Box::into_raw(state);
     let installed = unsafe {
         SetWindowSubclass(
-            hwnd,
+            subclass_hwnd,
             Some(titlebar_subclass_proc),
             SUBCLASS_ID,
             state_ptr as usize,
@@ -314,7 +390,7 @@ pub fn install(window: &WebviewWindow) -> Result<(), String> {
         .as_bool()
     };
     if installed {
-        eprintln!("[dsh-native] Windows titlebar subclass installed");
+        eprintln!("[dsh-native] Windows titlebar subclass installed on hwnd={subclass_hwnd:?}");
         Ok(())
     } else {
         drop(unsafe { Box::from_raw(state_ptr) });
