@@ -85,6 +85,7 @@ dsh-client-<version>-<platform>/        # 绿色版/便携布局（解压即用�
 - 构建期按清单把插件目录（lib/ + cordis.patch.yml + package.json）复制进 seed 的 node_modules 实体目录
 - profile package.json 的 dependencies 改为实体引用
 - 确保插件的 peerDependencies（`@deepseek-ai/dsh-*`）解析到捆绑 dsh 的那份——**同一 node_modules 树**，避免双实例服务冲突
+- **插件运行时依赖内化（2026-02 实现）**：DSH 启动时维护的扁平回退目录（`$DSH_HOME/profiles/node_modules`）只含 dsh 应用闭包（deps+peers 传递闭包）的符号链接；`tar`/`https-proxy-agent` 等不在闭包内的插件运行时依赖不会出现在回退目录，导致打包后 Windows 桌面端报 `Cannot find package 'tar'`。`assemble-seed.mjs` 现从 harness runtime（已 `--prod` 安装插件）复制各内插件的**非闭包**运行时依赖闭包到 profile 自身 node_modules（`tar`、`https-proxy-agent` 及其传递依赖）；闭包内的 `@deepseek-ai/*`（含 vendored `@deepseek-ai/cordis`/`schemastery`）仍只走扁平回退，保证单一 cordis 实例与 fork 补丁不被遮蔽。
 
 ### 4.3 sandbox 默认配置（ADR-017）
 

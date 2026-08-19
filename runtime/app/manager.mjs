@@ -127,15 +127,35 @@ function writePatchText(text) {
 }
 
 function appendDisabledPatch(id) {
-  const safeId = String(id).replaceAll('"', '\\"')
-  const flow = `{ id: "${safeId}", disabled: true }`
-  const current = readPatchFile().text
-  if (!current.trim() || current.trim() === '[]') {
-    return writePatchText(`[\n  ${flow}\n]\n`)
+  const entry = { id: String(id), disabled: true }
+  const text = readPatchFile().text
+  const trimmed = text.trim()
+  if (!trimmed || trimmed === '[]') {
+    return writePatchText(`[\n  { id: ${JSON.stringify(entry.id)}, disabled: true }\n]\n`)
   }
-  const match = current.match(/(\s*)\]\s*$/)
-  if (!match) return writePatchText(`${current.trimEnd()}\n- ${flow}\n`)
-  return writePatchText(`${current.slice(0, match.index)}- ${flow}\n]\n`)
+  try {
+    const YAML = harnessYamlModule()
+    const current = YAML.parse(text)
+    if (!Array.isArray(current)) throw new Error('patch root is not a top-level array')
+    const alreadyDisabled = current.some((item) => item !== null && typeof item === 'object' && !Array.isArray(item)
+      && item.id === entry.id && item.disabled === true)
+    if (!alreadyDisabled) current.push(entry)
+    return writePatchText(`${YAML.stringify(current, { lineWidth: 0 })}\n`)
+  } catch (error) {
+    // A dialect the default YAML schema cannot round-trip (e.g. `!!js`
+    // expressions). Append by string surgery without parsing: stay in the
+    // file's own collection style so the result stays loadable.
+    const flow = `{ id: ${JSON.stringify(entry.id)}, disabled: true }`
+    const endMatch = text.match(/(\s*)\]\s*$/)
+    if (!endMatch) return writePatchText(`${text.trimEnd()}\n- ${flow}\n`)
+    const before = text.slice(0, endMatch.index)
+    const openBracket = before.lastIndexOf('[')
+    const between = before.slice(openBracket + 1).trim()
+    if (openBracket >= 0 && between === '') {
+      return writePatchText(`${before.slice(0, openBracket)}[\n  ${flow}\n]\n`)
+    }
+    return writePatchText(`${before},\n  ${flow}\n]\n`)
+  }
 }
 
 function runConfigDump() {
