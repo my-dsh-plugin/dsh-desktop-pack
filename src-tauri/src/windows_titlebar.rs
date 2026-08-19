@@ -29,8 +29,8 @@ use windows::Win32::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
             GetClientRect, IsZoomed, PostMessageW, ShowWindow, SW_MAXIMIZE, SW_MINIMIZE,
-            SW_RESTORE, WM_CAPTURECHANGED, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSELEAVE,
-            WM_MOUSEMOVE, WM_NCDESTROY, WM_SIZE,
+            SW_RESTORE, WM_CAPTURECHANGED, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+            WM_NCDESTROY, WM_SIZE,
         },
     },
 };
@@ -38,6 +38,9 @@ use windows::Win32::{
 const SUBCLASS_ID: usize = 0x4453_4854; // "DSHT"
 const CAPTION_BUTTON_HEIGHT_DIP: i32 = 32;
 const CAPTION_BUTTON_WIDTH_DIP: i32 = 46;
+// windows 0.61.x does not generate this SDK message constant, although the
+// user32 API still sends it after TrackMouseEvent(TME_LEAVE).
+const WM_MOUSELEAVE: u32 = 0x02A3;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum CaptionHit {
@@ -214,7 +217,7 @@ unsafe fn request_mouse_leave(hwnd: HWND, state: &mut CaptionState) {
         hwndTrack: hwnd,
         dwHoverTime: 0,
     };
-    if unsafe { TrackMouseEvent(&mut event) }.as_bool() {
+    if unsafe { TrackMouseEvent(&mut event) }.is_ok() {
         state.tracking_leave = true;
     }
 }
