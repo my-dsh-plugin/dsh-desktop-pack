@@ -77,17 +77,20 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
     None
 }
 
-/// Desktop-chrome injection for the main webview: a 32px draggable top strip
-/// (overlay title bar with macOS traffic lights / Windows caption buttons),
-/// plus a Windows-only mirror of the page's resolved theme into the window
-/// theme. The page's own theme stays authoritative: the script only reads
-/// `color-scheme` / `body[data-ds-dark-theme]` and never writes page state.
+/// Desktop-chrome injection for the main webview: reserves a 32px top strip
+/// and, on Windows only, draws the caption buttons (minimize / maximize-restore
+/// / close) plus a draggable strip (`start_dragging`) and mirrors the page's
+/// resolved theme into the window theme (caption colors). On macOS the native
+/// overlay title bar (TitleBarStyle::Overlay) provides the traffic lights and
+/// an NSEvent monitor provides the strip drag, so the script only reserves the
+/// strip there. The page's own theme stays authoritative: the script only
+/// reads `color-scheme` / `body[data-ds-dark-theme]` and never writes page state.
 ///
-/// Dragging & double-click-zoom rely on Tauri's built-in `data-tauri-drag-region`
-/// handling (drag.js), which talks to the shell via `window.__TAURI_INTERNALS__`.
-/// The harness UI is served over http://127.0.0.1 (a remote origin), so the
-/// shell grants those window commands through a remote ACL capability — see
-/// `capabilities/desktop-shell.json` (`desktop-shell-titlebar-remote`).
+/// The Windows caption buttons talk to the shell over `window.__TAURI_INTERNALS__`
+/// (e.g. `plugin:window|minimize`). The harness UI is served over
+/// http://127.0.0.1 (a remote origin), so the shell grants those window commands
+/// through a remote ACL capability — see `capabilities/desktop-shell.json`
+/// (`desktop-shell-titlebar-remote`).
 fn desktop_chrome_script() -> String {
     include_str!("../chrome/desktop-chrome.js")
         .replace("__DSH_DESKTOP_SYNC_WINDOW_THEME__", if cfg!(target_os = "windows") { "true" } else { "false" })

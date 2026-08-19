@@ -9,12 +9,15 @@
     "permissions": [
       "core:window:allow-start-dragging",
       "core:window:allow-set-theme",
-      "core:window:allow-toggle-maximize"
+      "core:window:allow-toggle-maximize",
+      "core:window:allow-is-maximized",
+      "core:window:allow-minimize",
+      "core:window:allow-close"
     ]
   },
   {
     "identifier": "desktop-shell-titlebar-remote",
-    "description": "Desktop-shell chrome for the remote harness UI (http://127.0.0.1): dragging, double-click-to-maximize and window-theme mirroring. The harness page is a remote origin, so these core:window commands must be granted via a remote capability.",
+    "description": "Desktop-shell chrome for the remote harness UI (http://127.0.0.1): caption buttons (minimize/maximize-restore/close), dragging, double-click-to-maximize and window-theme mirroring. The harness page is a remote origin, so these core:window commands must be granted via a remote capability.",
     "local": false,
     "remote": {
       "urls": [
@@ -25,7 +28,10 @@
       "core:window:allow-start-dragging",
       "core:window:allow-internal-toggle-maximize",
       "core:window:allow-toggle-maximize",
-      "core:window:allow-set-theme"
+      "core:window:allow-set-theme",
+      "core:window:allow-is-maximized",
+      "core:window:allow-minimize",
+      "core:window:allow-close"
     ],
     "windows": [
       "main"
