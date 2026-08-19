@@ -12,7 +12,20 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": null
+      "csp": null,
+      "dangerousRemoteDomainIpcAccess": [
+        {
+          "schemas": [
+            "http"
+          ],
+          "domains": [
+            "127.0.0.1"
+          ],
+          "windows": [
+            "main"
+          ]
+        }
+      ]
     }
   },
   "bundle": {
