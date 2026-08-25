@@ -17,9 +17,6 @@ use tauri::{
 };
 use tauri_plugin_dialog::DialogExt;
 
-#[cfg(target_os = "windows")]
-mod windows_titlebar;
-
 struct ManagerProcess {
     child: Mutex<Option<Child>>,
     stdin: Mutex<Option<ChildStdin>>,
@@ -92,20 +89,14 @@ fn resolve_runtime_paths() -> Option<RuntimePaths> {
     None
 }
 
-/// Desktop-chrome injection for the main webview. macOS reserves a 32px strip
-/// for its overlay traffic lights and native drag monitor. Windows draws only
-/// the three caption glyphs over the page; a same-process native overlay owns
-/// hit testing, dragging and button actions, so the remote page receives no
-/// Tauri IPC permission and needs no blank 32px content offset.
+/// macOS-only content inset for the webview: the window keeps the native
+/// overlay traffic lights (`TitleBarStyle::Overlay`), so the page reserves a
+/// 32px strip at the top for them and for the AppKit drag monitor in
+/// `install_native_strip_drag`. Windows uses the ordinary native title bar
+/// (minimize/maximize/close and dragging are provided by the OS), so no script
+/// is injected there.
 fn desktop_chrome_script() -> String {
-    include_str!("../chrome/desktop-chrome.js").replace(
-        "__DSH_DESKTOP_IS_WINDOWS__",
-        if cfg!(target_os = "windows") {
-            "true"
-        } else {
-            "false"
-        },
-    )
+    include_str!("../chrome/desktop-chrome.js").to_string()
 }
 
 /// Install a native event monitor that turns clicks in the window's top strip
@@ -228,19 +219,15 @@ fn main() {
             let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("DeepSeek Harness Desktop")
                 .inner_size(1280.0, 820.0)
-                .min_inner_size(960.0, 640.0)
-                .initialization_script(&desktop_chrome_script());
+                .min_inner_size(960.0, 640.0);
             #[cfg(target_os = "macos")]
             let window_builder = window_builder
                 .decorations(true)
-                .title_bar_style(TitleBarStyle::Overlay);
-            #[cfg(target_os = "windows")]
-            let window_builder = window_builder
-                .decorations(false)
-                .minimizable(true)
-                .maximizable(true)
-                .closable(true);
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                .title_bar_style(TitleBarStyle::Overlay)
+                .initialization_script(&desktop_chrome_script());
+            // Ordinary native window elsewhere (Windows included):
+            // minimize/maximize/close and title-bar dragging are the OS's.
+            #[cfg(not(target_os = "macos"))]
             let window_builder = window_builder.decorations(true);
             let window = window_builder
                 .on_navigation(move |url| {
@@ -250,10 +237,6 @@ fn main() {
                 .build()?;
             #[cfg(target_os = "macos")]
             install_native_strip_drag(&window);
-            #[cfg(target_os = "windows")]
-            if let Err(error) = windows_titlebar::install(&window) {
-                eprintln!("[dsh-native] failed to install Windows titlebar overlay: {error}");
-            }
             let reader_window = window.clone();
 
             let tray_window = window.clone();

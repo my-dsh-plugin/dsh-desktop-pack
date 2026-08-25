@@ -1,6 +1,6 @@
 [package]
 name = "dsh-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "DeepSeek Harness desktop shell"
 authors = ["my-dsh-plugin"]
 edition = "2021"
@@ -22,17 +22,6 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["block2"] }
 objc2-foundation = "0.3"
 block2 = "0.6"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61.3", features = [
-  "Win32_Foundation",
-  "Win32_Graphics_Gdi",
-  "Win32_System_LibraryLoader",
-  "Win32_UI_HiDpi",
-  "Win32_UI_Input_KeyboardAndMouse",
-  "Win32_UI_Shell",
-  "Win32_UI_WindowsAndMessaging",
-] }
 
 [profile.release]
 strip = true
