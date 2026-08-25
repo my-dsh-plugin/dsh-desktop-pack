@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-pack",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "DeepSeek Harness 桌面客户端打包工程：harness 外部动态引入，预置模式与插件，macOS/Windows 双平台。",
   "type": "module",

@@ -658,7 +658,10 @@ function startDsh() {
   }
   writeFileSync(join(LOGS, 'dsh-latest.out'), '')
   writeFileSync(join(LOGS, 'dsh-latest.log'), '')
-  child = spawn(RUN_NODE, [bin, 'web', '--port', '0'], {
+  // Desktop-only launch: bind strictly to loopback and never hand the URL to
+  // the OS default browser. The webview is the only UI; the internal server
+  // must not be reachable from the LAN, and no extra browser tab is wanted.
+  child = spawn(RUN_NODE, [bin, 'web', '--port', '0', '--host', '127.0.0.1', '--no-open'], {
     cwd: process.env.DSH_CWD || homedir(),
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
