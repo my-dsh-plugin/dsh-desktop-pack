@@ -5,7 +5,7 @@
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
       "ref": "refs/heads/personal-dev",
-      "commit": "b4f0ca505fbef1b99679104c92edee5a49ae6712",
+      "commit": "f266b432e989730dfb7f6d829133200d03edd8b2",
       "checkout": ".cache/sources/deepseek-harness"
     },
     "modes": {
@@ -19,28 +19,28 @@
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/thinking-level-override",
       "ref": "refs/heads/main",
-      "commit": "fe450bd1911203a4a611849a899baf60d0d5f77f",
+      "commit": "4098a2504605e7a7179b0d8ed3ce6c7d6d209a71",
       "checkout": ".cache/sources/thinking-level-override"
     },
     "session-archive-manager": {
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/session-archive-manager",
       "ref": "refs/heads/main",
-      "commit": "c48952ee975d91905ecae8013da0a1b09f077c65",
+      "commit": "991a89c4db16d4bede6bcd7cb9cc7b1595d664f4",
       "checkout": ".cache/sources/session-archive-manager"
     },
     "agent-mode-switcher": {
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/agent-mode-switcher",
       "ref": "refs/heads/main",
-      "commit": "63d67a6e93d92a8d95ef13000c238240c457112e",
+      "commit": "9b1757c86582bb1d99706c088f6fb6577fb30ed7",
       "checkout": ".cache/sources/agent-mode-switcher"
     },
     "dsh-skill-manager": {
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/dsh-skill-manager",
       "ref": "refs/heads/main",
-      "commit": "5827f24e03dd80036ce3f7e10eb5611ad7a8d7b3",
+      "commit": "83fdc0d057cdd295ae2233fc67fdf20e074905cc",
       "checkout": ".cache/sources/dsh-skill-manager"
     }
   }
