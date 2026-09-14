@@ -43,7 +43,7 @@
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/agent-mode-switcher",
       "ref": "refs/heads/main",
-      "commit": "9b1757c86582bb1d99706c088f6fb6577fb30ed7",
+      "commit": "cabb13b5f785f5d23f830f8343edd2274e202ac3",
       "packageName": "dsh-agent-mode-switcher",
       "bundleName": "dsh-agent-mode-switcher",
       "build": {
