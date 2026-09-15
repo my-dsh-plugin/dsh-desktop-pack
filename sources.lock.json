@@ -19,7 +19,7 @@
       "kind": "git",
       "repo": "https://github.com/my-dsh-plugin/thinking-level-override",
       "ref": "refs/heads/main",
-      "commit": "4098a2504605e7a7179b0d8ed3ce6c7d6d209a71",
+      "commit": "380cc9a059378f298b6dda84fb0ebf2d4493edbc",
       "checkout": ".cache/sources/thinking-level-override"
     },
     "session-archive-manager": {

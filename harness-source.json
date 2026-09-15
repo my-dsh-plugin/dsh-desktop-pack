@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "harness",
-  "version": "20260825.2",
+  "version": "20260915.1",
   "source": {
     "kind": "git",
     "repo": "https://github.com/my-dsh-plugin/deepseek-harness",
