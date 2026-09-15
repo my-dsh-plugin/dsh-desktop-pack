@@ -64,7 +64,7 @@
 - **无页面 IPC**：不注册任何 invoke handler，页面与 Tauri core 零信任面
 - **shell ↔ manager**：stdio JSON Lines（内部可信通道）；manager 的 stdio 命令不是网络端口，页面不可达
 - **窗口行为**：关闭按钮 = 隐藏到托盘（不退出）；再次启动/托盘点击恢复窗口；窗口大小/位置记忆（配置文件存 `data/`）
-- **加载**：manager 启动 DSH `--port 0` 后解析 stdout 的 `dsh web: http://127.0.0.1:<port>` 就绪行，把 URL 回报 shell 后才加载 WebView；超时/无就绪行则按启动失败进恢复流程
+- **加载**：manager 启动 DSH `--port 0` 后解析 stdout 的就绪行 `dsh web: <url>`，**必须原样保留 URL 的查询串**——该 URL 形如 `http://127.0.0.1:<port>/?token=<launchToken>`，token 是本次进程唯一的认证输入，DSH 收到后写入 `HttpOnly` 会话 cookie 并 303 跳回 `/`；丢掉 `?token=` 会让 WebView 停在裸 `/` 上而收到 401（`dsh web authentication required`）。就绪行的可选 ` (LAN: …)` 后缀不属于本机 URL。拿到完整 URL 后才回报 shell 加载 WebView；超时/无就绪行则按启动失败进恢复流程
 - **安全**：仅允许导航到 `http://127.0.0.1:<port>`，禁止一切外部导航/新窗口（shell.open 不启用）
 
 **依据**：DSH 本身是本地 Web 服务，壳只负责展示 + 生命周期；xiincs 方案实证无 IPC 页面纯远程加载，攻击面最小化。用户确认真机 WebView 可接受。

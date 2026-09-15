@@ -212,7 +212,7 @@ HARNESS_BIN="$RUNTIME/harness/versions/$HARNESS_VERSION/node_modules/@deepseek-a
 ## 6. 启动器、托盘与端口
 
 - 端口：`--port 0`（OS 分配随机回环端口）+ `host: 127.0.0.1`（默认已是）
-- manager 启动 DSH 后**解析 stdout 就绪行**：`dsh web: http://127.0.0.1:<port>`（Loader settlement 后打印；超时/无行按启动失败转恢复流程），拿到 URL 再回报 Tauri shell 加载 WebView
+- manager 启动 DSH 后**解析 stdout 就绪行**：`dsh web: <url>`，其中 url 形如 `http://127.0.0.1:<port>/?token=<launchToken>`（Loader settlement 后打印；超时/无行按启动失败转恢复流程）。**查询串必须整段保留**：token 是该进程唯一的认证输入，DSH 校验后种下 `HttpOnly` 会话 cookie 再 303 回 `/`；只取 `scheme://host:port` 会命中 401 `dsh web authentication required`。行尾可选 ` (LAN: …)` 后缀需丢弃。拿到完整 URL 再回报 Tauri shell 加载 WebView
 - **进程模型**：Tauri shell（窗口/托盘/单实例）→ stdio JSON Lines → `runtime/app/manager.mjs`（DSH 生命周期、日志、seed/迁移、safe-mode/bisect、diag、更新 staging）→ spawn DSH 子进程
 - **WebView 壳：Tauri 2 薄壳**（ADR-006）：页面不授予 Tauri IPC（不开 capabilities / 无 invoke handler），纯 http 加载本地回环服务；仅允许导航到 `127.0.0.1:<port>`，禁外部导航/新窗口
 

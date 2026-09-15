@@ -704,7 +704,12 @@ function pipeLines(stream, streamName) {
         appendFileSync(join(LOGS, logFile), `${line}\n`)
       } catch {}
       if (streamName === 'stdout') {
-        const match = line.match(/dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/)
+        // The printed URL carries the process launch token as its only
+        // authentication input (`/?token=…`); the webview navigates to it so
+        // the server can mint the browser-session cookie. Dropping the query
+        // would leave the window on a bare "/" and the server answers 401.
+        // An optional " (LAN: …)" suffix is space-separated and not captured.
+        const match = line.match(/dsh web:\s+(https?:\/\/\S+)/)
         if (match) emit({ type: 'ready', url: match[1] })
         else emit({ type: 'stdout', line })
       } else {
