@@ -120,15 +120,20 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          # No checkout in this job: name the repository explicitly, because gh
+          # otherwise resolves it from the working directory's git remote.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
+          gh --version
           mapfile -t assets < <(find dist -type f \( -name '*.zip' -o -name '*.dmg' \) | sort)
-          echo "assets: ${assets[*]}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/SHA256SUMS.txt "${assets[@]}" --clobber
+          printf 'assets:\n'
+          printf '  %s\n' "${assets[@]}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" dist/SHA256SUMS.txt "${assets[@]}" --clobber
           else
-            gh release create "$tag" dist/SHA256SUMS.txt "${assets[@]}" \
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" dist/SHA256SUMS.txt "${assets[@]}" \
               --title "DeepSeek Harness Desktop ${tag#v}" \
               --generate-notes
           fi
